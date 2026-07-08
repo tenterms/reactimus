@@ -1,0 +1,33 @@
+{
+  "name": "gsc-content-recommendations",
+  "version": "0.1.0",
+  "description": "Turns Google Search Console data into conservative, page-level content recommendations reviewed in Google Sheets.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "analyse": "tsx src/cli.ts analyse",
+    "pull": "tsx src/cli.ts pull",
+    "inventory": "tsx src/cli.ts inventory",
+    "apply-feedback": "tsx src/cli.ts apply-feedback",
+    "demo": "tsx src/cli.ts demo"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
+    "cheerio": "^1.0.0",
+    "dotenv": "^16.4.5",
+    "fast-xml-parser": "^4.5.0",
+    "googleapis": "^144.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

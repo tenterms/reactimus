@@ -128,6 +128,13 @@ export interface GroupScores {
   distinctTopic: number; // 0-5
   cannibalisationRisk: number; // 0-5
   betterExistingUrl: string;
+  /**
+   * Set when the query is "{this page's topic} + one unrecognised qualifier"
+   * (usually an untargeted town/city, or an unrecognised synonym like
+   * "pen" for "penetration"). Such variants are rejected with an explanation
+   * rather than spawning per-qualifier new-page ideas.
+   */
+  unknownQualifier: string;
   scoreNotes: string[];
 }
 

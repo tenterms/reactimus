@@ -1,4 +1,4 @@
-import { FUNCTION_WORDS, SINGULARISE_EXCEPTIONS } from '../config/defaults.js';
+import { COMPOUND_SPLITS, FUNCTION_WORDS, SINGULARISE_EXCEPTIONS } from '../config/defaults.js';
 
 /**
  * Normalise a raw query or text fragment:
@@ -38,11 +38,11 @@ export function singularise(token: string): string {
   return token;
 }
 
-/** Tokenise normalised text into words. */
+/** Tokenise normalised text into words, splitting known compound spellings. */
 export function tokenise(text: string): string[] {
   const normalised = normaliseText(text);
   if (!normalised) return [];
-  return normalised.split(' ');
+  return normalised.split(' ').flatMap((t) => COMPOUND_SPLITS[t] ?? [t]);
 }
 
 export interface TokenOptions {

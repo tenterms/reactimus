@@ -10,6 +10,7 @@ import type {
 import { contentTokens } from '../text/normalise.js';
 import {
   COMMERCIAL_MARKERS,
+  GEO_MODIFIERS,
   INFORMATIONAL_MARKERS,
   QUESTION_STOPWORDS,
   WRONG_INTENT_MARKERS,
@@ -99,7 +100,13 @@ export function scoreGroup(
   const commerciality = scoreCommerciality(tokens, ctx.config, notes);
   const topicalRelevance = scoreTopicalRelevance(tokens, profile, mention, ctx, notes);
   const intentMatch = scoreIntentMatch(tokens, profile, ctx, commerciality, notes);
-  const distinctTopic = scoreDistinctTopic(tokens, profile, mention, ctx.config, notes);
+  const { score: distinctTopic, unknownQualifier } = scoreDistinctTopic(
+    tokens,
+    profile,
+    mention,
+    ctx,
+    notes,
+  );
   const { risk: cannibalisationRisk, betterUrl } = scoreCannibalisation(
     group,
     tokens,
@@ -115,6 +122,7 @@ export function scoreGroup(
     distinctTopic,
     cannibalisationRisk,
     betterExistingUrl: betterUrl,
+    unknownQualifier,
     scoreNotes: notes,
   };
 }
@@ -298,16 +306,17 @@ function scoreDistinctTopic(
   tokens: string[],
   profile: PageProfile,
   mention: MentionResult,
-  config: ToolConfig,
+  ctx: ScoringContext,
   notes: string[],
-): number {
+): { score: number; unknownQualifier: string } {
+  const config = ctx.config;
   if (mention.type === 'exact' || mention.type === 'close_variant') {
     notes.push('Distinct-topic: phrase already on page → part of current page.');
-    return 1;
+    return { score: 1, unknownQualifier: '' };
   }
   if (mention.type === 'concept_covered') {
     notes.push('Distinct-topic: concept covered on page.');
-    return 2;
+    return { score: 2, unknownQualifier: '' };
   }
 
   // Novelty is judged on topic-carrying tokens only — question phrasing
@@ -324,14 +333,44 @@ function scoreDistinctTopic(
   );
   if (differentLocation) {
     notes.push('Distinct-topic: query targets a location not covered by this page.');
-    return 5;
+    return { score: 5, unknownQualifier: '' };
   }
 
-  // If the only novelty is a commercial modifier (cost, price, reviews...),
-  // the topic is the same — it belongs on or near this page.
-  if (novel.length > 0 && novel.every((t) => COMMERCIAL_MARKERS.has(t) || INFORMATIONAL_MARKERS.has(t))) {
+  // If the only novelty is a commercial modifier (cost, price, reviews...)
+  // or a country qualifier (uk...), the topic is the same — it belongs on or
+  // near this page, not on a new one.
+  if (
+    novel.length > 0 &&
+    novel.every(
+      (t) => COMMERCIAL_MARKERS.has(t) || INFORMATIONAL_MARKERS.has(t) || GEO_MODIFIERS.has(t),
+    )
+  ) {
     notes.push(`Distinct-topic: only modifier tokens are new [${novel.join(', ')}].`);
-    return 2;
+    return { score: 2, unknownQualifier: '' };
+  }
+
+  // "{this page's topic} + one unrecognised token" — usually an untargeted
+  // town/city or an unrecognised synonym. Not a new-page signal: it gets
+  // flagged for the reviewer, who can add a location or a synonym rule.
+  const siteTokens = buildSiteProfile(ctx);
+  const unknown = novel.filter(
+    (t) =>
+      !COMMERCIAL_MARKERS.has(t) &&
+      !INFORMATIONAL_MARKERS.has(t) &&
+      !GEO_MODIFIERS.has(t) &&
+      !siteTokens.has(t),
+  );
+  const rest = scored.filter((t) => !unknown.includes(t));
+  if (
+    unknown.length === 1 &&
+    scored.length >= 2 &&
+    rest.length > 0 &&
+    rest.every((t) => profile.allTokens.has(t) || COMMERCIAL_MARKERS.has(t) || GEO_MODIFIERS.has(t))
+  ) {
+    notes.push(
+      `Distinct-topic: page topic plus one unrecognised qualifier ("${unknown[0]}").`,
+    );
+    return { score: 3, unknownQualifier: unknown[0]! };
   }
 
   let score: number;
@@ -339,7 +378,7 @@ function scoreDistinctTopic(
   else if (noveltyRatio >= 0.25) score = 3;
   else score = 2;
   notes.push(`Distinct-topic: ${novel.length}/${tokens.length} tokens absent from page → ${score}.`);
-  return score;
+  return { score, unknownQualifier: '' };
 }
 
 function scoreCannibalisation(

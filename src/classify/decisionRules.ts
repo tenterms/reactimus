@@ -98,6 +98,16 @@ export function classifyGroup(
       confidence: Math.min(0.85, dataConfidence + 0.1),
     };
   }
+  if (scores.unknownQualifier) {
+    return {
+      category: 'reject',
+      rationale:
+        `This is the page's topic plus one unrecognised qualifier ("${scores.unknownQualifier}"). ` +
+        `Not acted on by default: if it's a location the client serves, add it to Target locations in Config; ` +
+        `if it's a synonym or valid variant, add a merge/synonym rule; otherwise leave rejected.`,
+      confidence: 0.7,
+    };
+  }
 
   // --- 3. Another page owns this intent ---
   if (scores.cannibalisationRisk >= t.assignMinCannibalisation && scores.betterExistingUrl) {

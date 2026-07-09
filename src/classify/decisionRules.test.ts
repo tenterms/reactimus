@@ -28,6 +28,7 @@ function scores(overrides: Partial<GroupScores>): GroupScores {
     distinctTopic: 3,
     cannibalisationRisk: 1,
     betterExistingUrl: '',
+    unknownQualifier: '',
     scoreNotes: [],
     ...overrides,
   };
@@ -148,6 +149,24 @@ describe('classifyGroup default decision rules', () => {
     expect(d.category).toBe('new_commercial_page');
     expect(d.confidence).toBeLessThan(0.7);
     expect(d.rationale).toContain('verify');
+  });
+
+  it('rejects page-topic-plus-unknown-qualifier variants with guidance', () => {
+    const d = classifyGroup(
+      group('cyber security consultancy oxted'),
+      scores({
+        topicalRelevance: 4,
+        intentMatch: 5,
+        commerciality: 4,
+        distinctTopic: 3,
+        cannibalisationRisk: 1,
+        unknownQualifier: 'oxted',
+      }),
+      NOT_COVERED,
+    );
+    expect(d.category).toBe('reject');
+    expect(d.rationale).toContain('oxted');
+    expect(d.rationale).toContain('Target locations');
   });
 
   it('still rejects unrelated queries even with commercial markers', () => {

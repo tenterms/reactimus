@@ -91,6 +91,13 @@ describe('detectMention', () => {
     }
   });
 
+  it('compound spelling on the page counts as a mention of the spaced form', () => {
+    const g = group('cyber security consultancy');
+    const r = detectMention(g, page({ h1: 'Cybersecurity Consultancy for regulated industries' }));
+    expect(r.mentioned).toBe(true);
+    expect(['exact', 'close_variant']).toContain(r.type);
+  });
+
   it('reports evidence snippet and location', () => {
     const r = detectMention(G, page({ h2s: ['Why choose our IT support in Sheffield?'] }));
     expect(r.location).toBe('h2');

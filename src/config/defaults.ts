@@ -59,6 +59,36 @@ export const COMMERCIAL_MARKERS = new Set([
   'me',
 ]);
 
+/**
+ * Compound spellings normalised to their spaced form for token comparison.
+ * These are spacing variants of the same words (like plural handling), NOT
+ * synonyms — "pentest" is "pen test" written together, but "pen" is never
+ * merged with "penetration" without an explicit rule.
+ */
+export const COMPOUND_SPLITS: Record<string, string[]> = {
+  cybersecurity: ['cyber', 'security'],
+  pentest: ['pen', 'test'],
+  pentests: ['pen', 'tests'],
+  pentesting: ['pen', 'testing'],
+};
+
+/**
+ * Country/nation-level qualifiers. Adding one to a query does not make it a
+ * new topic for a business serving that whole country ("penetration testing
+ * services uk" is the same topic as "penetration testing services") — it is
+ * treated like a commercial modifier, not a distinct location entity. City
+ * and regional targeting still comes from the Config location lists.
+ */
+export const GEO_MODIFIERS = new Set([
+  'uk',
+  'england',
+  'scotland',
+  'wales',
+  'britain',
+  'british',
+  'ireland',
+]);
+
 /** Tokens that signal question-led / informational intent. */
 export const INFORMATIONAL_MARKERS = new Set([
   'how',

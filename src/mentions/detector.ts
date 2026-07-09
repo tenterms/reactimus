@@ -1,6 +1,6 @@
 import type { MentionLocation, MentionResult, PageContentRow, QueryGroup } from '../types.js';
 import { contentTokens, normaliseText, singularise } from '../text/normalise.js';
-import { FUNCTION_WORDS, MENTION_WINDOW_SLACK } from '../config/defaults.js';
+import { COMPOUND_SPLITS, FUNCTION_WORDS, MENTION_WINDOW_SLACK } from '../config/defaults.js';
 
 /**
  * Flexible phrase matching. A query group counts as mentioned when the page
@@ -71,18 +71,26 @@ function matchRegion(
   variantSequences: string[][],
 ): RegionMatch | null {
   const rawWords = text.split(/\s+/).filter(Boolean);
+  // One raw word can yield multiple tokens ("cybersecurity" -> cyber,
+  // security); expanded tokens share the raw index for evidence/adjacency.
   const norm = rawWords.map((w) => {
     const n = normaliseText(w);
-    return { raw: w, norm: n ? singularise(n) : '', isFunction: FUNCTION_WORDS.has(n) };
+    const parts = n ? (COMPOUND_SPLITS[n] ?? [n]).map(singularise) : [];
+    return { raw: w, tokens: parts, isFunction: FUNCTION_WORDS.has(n) };
   });
 
-  // Indices of content words (non-function, non-empty) in the raw stream.
+  // Content tokens (non-function, non-empty) with their raw-word indices.
   const contentIdx: number[] = [];
+  const contentWords: string[] = [];
   for (let i = 0; i < norm.length; i++) {
     const t = norm[i]!;
-    if (t.norm && !t.isFunction) contentIdx.push(i);
+    if (t.isFunction) continue;
+    for (const token of t.tokens) {
+      if (!token) continue;
+      contentIdx.push(i);
+      contentWords.push(token);
+    }
   }
-  const contentWords = contentIdx.map((i) => norm[i]!.norm);
 
   // --- exact: a variant's content-word sequence, contiguous apart from
   // function words ---
@@ -145,7 +153,7 @@ function matchRegion(
  * "IT support for growing businesses in Sheffield" is not).
  */
 function contiguousApartFromFunctionWords(
-  norm: Array<{ isFunction: boolean; norm: string }>,
+  norm: Array<{ isFunction: boolean; tokens: string[] }>,
   contentIdx: number[],
   start: number,
   length: number,
@@ -155,7 +163,7 @@ function contiguousApartFromFunctionWords(
     const until = contentIdx[start + j + 1]!;
     for (let k = from + 1; k < until; k++) {
       const t = norm[k]!;
-      if (t.norm && !t.isFunction) return false;
+      if (t.tokens.length > 0 && !t.isFunction) return false;
     }
   }
   return true;

@@ -109,6 +109,16 @@ describe('scoreGroup', () => {
     expect(s.distinctTopic).toBe(5);
   });
 
+  it('flags page-topic-plus-unknown-town variants instead of scoring them distinct', () => {
+    const s = score('it support penistone'); // town not in target/excluded lists
+    expect(s.unknownQualifier).toBe('penistone');
+  });
+
+  it('treats country qualifiers as same-topic, not new pages', () => {
+    const s = score('it support uk');
+    expect(s.distinctTopic).toBeLessThanOrEqual(2);
+  });
+
   it('treats cost/price modifiers as same-topic, not new pages', () => {
     const s = score('it support cost sheffield');
     expect(s.distinctTopic).toBeLessThanOrEqual(2);

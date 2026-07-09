@@ -45,6 +45,15 @@ describe('contentTokens / contentSignature', () => {
     expect(contentSignature('IT Support Birmingham')).not.toBe(base);
     expect(contentSignature('Technology Businesses Sheffield')).not.toBe(base);
   });
+  it('unifies compound spellings with their spaced forms', () => {
+    expect(contentSignature('cybersecurity consultancy')).toBe(
+      contentSignature('cyber security consultancy'),
+    );
+    expect(contentSignature('pentesting services')).toBe(contentSignature('pen testing services'));
+    // ...but never merges true synonyms
+    expect(contentSignature('pen testing')).not.toBe(contentSignature('penetration testing'));
+  });
+
   it('does not reduce an all-function-word query to nothing', () => {
     expect(contentTokens('to the')).toEqual(['to', 'the']);
   });

@@ -88,9 +88,22 @@ export async function runAnalyse(deps: PipelineDeps, options: { pullOnly?: boole
     `Client: ${config.clientName || '(unnamed)'} | property: ${config.gscProperty || '(none)'} | window: last ${config.monthsBack} months`,
   );
 
-  const inputs = (await store.readTab(TAB.inputUrls)).map(inputUrlFromRow).filter((i) => i.url);
-  if (inputs.length === 0) {
+  const allInputs = (await store.readTab(TAB.inputUrls)).map(inputUrlFromRow).filter((i) => i.url);
+  if (allInputs.length === 0) {
     log('No URLs found in the Input URLs tab — nothing to do.');
+    return;
+  }
+  // "Include in next run" selector: when any row is ticked, only ticked rows
+  // run; when none are, everything runs. Unselected URLs keep all their
+  // existing data untouched.
+  const isTicked = (v: string) => ['yes', 'y', 'true', '1', 'x', '✓', '✔'].includes(v.trim().toLowerCase());
+  const anyTicked = allInputs.some((i) => isTicked(i.include));
+  const inputs = anyTicked ? allInputs.filter((i) => isTicked(i.include)) : allInputs;
+  if (anyTicked) {
+    log(`Selector active: ${inputs.length} of ${allInputs.length} URL(s) ticked "Include in next run".`);
+  }
+  if (inputs.length === 0) {
+    log('No URLs selected — tick "Include in next run" on the rows to analyse.');
     return;
   }
 
@@ -102,20 +115,35 @@ export async function runAnalyse(deps: PipelineDeps, options: { pullOnly?: boole
   const activeRuleCount = rules.filter((r) => r.status === 'active').length;
   log(`Loaded ${rules.length} feedback rule(s); ${activeRuleCount} active.`);
 
-  // --- Pull GSC data + fetch page content per URL ---
+  // --- Pull GSC data (reusing recent pulls) + fetch page content per URL ---
+  const priorRaw = (await store.readTab(TAB.gscRaw)).map(gscRawFromRow).filter((r) => r.url);
   const allRaw: GscRawRow[] = [];
   const pages = new Map<string, PageContentRow>();
   const statuses = new Map<string, string>();
 
   for (const input of inputs) {
-    log(`Pulling GSC queries for ${input.url} ...`);
-    const { rows, error } = await gsc.queriesForUrl(config, input.url);
-    if (error) {
-      statuses.set(input.url, `GSC error: ${error}`);
-      log(`  GSC error: ${error}`);
+    const cached = priorRaw.filter((r) => normUrl(r.url) === normUrl(input.url));
+    const newestPull = cached.reduce((max, r) => (r.pulledAt > max ? r.pulledAt : max), '');
+    const pullAgeDays = newestPull
+      ? (Date.now() - new Date(newestPull).getTime()) / 86_400_000
+      : Infinity;
+
+    if (config.reusePullDays > 0 && pullAgeDays <= config.reusePullDays && cached.length > 0) {
+      allRaw.push(...cached);
+      statuses.set(input.url, `ok (reused GSC pull from ${newestPull.slice(0, 10)})`);
+      log(
+        `Reusing GSC pull for ${input.url} (pulled ${newestPull.slice(0, 10)}, ${cached.length} queries — under ${config.reusePullDays} days old).`,
+      );
     } else {
-      allRaw.push(...rows);
-      log(`  ${rows.length} queries (after thresholds).`);
+      log(`Pulling GSC queries for ${input.url} ...`);
+      const { rows, error } = await gsc.queriesForUrl(config, input.url);
+      if (error) {
+        statuses.set(input.url, `GSC error: ${error}`);
+        log(`  GSC error: ${error}`);
+      } else {
+        allRaw.push(...rows);
+        log(`  ${rows.length} queries (after thresholds).`);
+      }
     }
 
     const page = await fetchPage(input.url);
@@ -131,11 +159,9 @@ export async function runAnalyse(deps: PipelineDeps, options: { pullOnly?: boole
 
   // --- GSC Raw: replace rows for pulled URLs, keep other URLs' history ---
   const pulledUrls = new Set(inputs.map((i) => normUrl(i.url)));
-  const existingRaw = (await store.readTab(TAB.gscRaw))
-    .map(gscRawFromRow)
-    .filter((r) => r.url && !pulledUrls.has(normUrl(r.url)));
+  const existingRaw = priorRaw.filter((r) => !pulledUrls.has(normUrl(r.url)));
   await store.writeTab(TAB.gscRaw, [...existingRaw, ...allRaw].map(gscRawToRow));
-  log(`GSC Raw: wrote ${allRaw.length} fresh rows (kept ${existingRaw.length} rows for other URLs).`);
+  log(`GSC Raw: wrote ${allRaw.length} rows for this run (kept ${existingRaw.length} rows for other URLs).`);
 
   // --- Page Content: upsert by URL ---
   const existingContent = (await store.readTab(TAB.pageContent))
@@ -188,10 +214,14 @@ export async function runAnalyse(deps: PipelineDeps, options: { pullOnly?: boole
 
   const finishInputs = async () => {
     const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    // Write every row back (selection must not drop unselected URLs); stamp
+    // only the ones analysed in this run.
     await store.writeTab(
       TAB.inputUrls,
-      inputs.map((i) =>
-        inputUrlToRow({ ...i, lastAnalysed: stamp, status: statuses.get(i.url) ?? 'ok' }),
+      allInputs.map((i) =>
+        pulledUrls.has(normUrl(i.url))
+          ? inputUrlToRow({ ...i, lastAnalysed: stamp, status: statuses.get(i.url) ?? 'ok' })
+          : inputUrlToRow(i),
       ),
     );
   };
@@ -282,6 +312,30 @@ export async function runAnalyse(deps: PipelineDeps, options: { pullOnly?: boole
     }
   }
 
+  // --- Archive: previously-actioned rows move out of the working tabs and
+  // suppress re-recommendation of the same item on future runs (delete the
+  // Archive row to resurface it) ---
+  const TERMINAL_STATUS = new Set([
+    'approved',
+    'done',
+    'actioned',
+    'implemented',
+    'complete',
+    'completed',
+    'published',
+    'fixed',
+  ]);
+  const isTerminal = (v: string | undefined) => TERMINAL_STATUS.has((v ?? '').trim().toLowerCase());
+  const archivedAt = new Date().toISOString();
+  const newArchiveRows: SheetRow[] = [];
+  const archiveKey = (sourceTab: string, url: string, item: string) =>
+    `${sourceTab}##${normUrl(url)}##${item.trim().toLowerCase()}`;
+  const suppressedKeys = new Set(
+    (await store.readTab(TAB.archive)).map((r) =>
+      archiveKey(r['Source tab'] ?? '', r['URL'] ?? '', r['Item'] ?? ''),
+    ),
+  );
+
   // --- Recommendations (actionable) and Rejected (no-action) tabs ---
   const actionable = analysed.filter((g) => g.category !== 'reject');
   const rejected = analysed.filter((g) => g.category === 'reject');
@@ -297,46 +351,111 @@ export async function runAnalyse(deps: PipelineDeps, options: { pullOnly?: boole
     return recommendationToRow(rec);
   };
 
-  const writeSplitTab = async (tab: string, groups: AnalysedGroup[]) => {
+  let suppressedRecCount = 0;
+  const writeSplitTab = async (tab: string, groups: AnalysedGroup[], archive: boolean) => {
     const existing = await store.readTab(tab);
     const keptOther = existing.filter((r) => r['URL'] && !pulledUrls.has(normUrl(r['URL']!)));
-    const merged = mergePreservingReviewColumns(
-      existing.filter((r) => r['URL'] && pulledUrls.has(normUrl(r['URL']!))),
-      groups.map(toRow),
-      groupKey,
-      RECOMMENDATION_REVIEW_COLUMNS,
-    );
+    let existingPulled = existing.filter((r) => r['URL'] && pulledUrls.has(normUrl(r['URL']!)));
+    let rows = groups.map(toRow);
+
+    if (archive) {
+      // Move actioned rows to the Archive and remember their keys.
+      for (const row of existingPulled) {
+        if (!isTerminal(row['Review status'])) continue;
+        const item = row['Canonical query group'] ?? '';
+        suppressedKeys.add(archiveKey(tab, row['URL'] ?? '', item));
+        newArchiveRows.push({
+          'Archived at': archivedAt,
+          'Source tab': tab,
+          URL: row['URL'] ?? '',
+          Item: item,
+          Type: row['Recommendation type'] ?? '',
+          'Review status': row['Review status'] ?? '',
+          'Reviewer notes': row['Reviewer notes'] ?? '',
+          'Search demand summary': row['Search demand summary'] ?? '',
+          Details: row['Suggested content tweak'] ?? '',
+        });
+      }
+      existingPulled = existingPulled.filter((r) => !isTerminal(r['Review status']));
+      const before = rows.length;
+      rows = rows.filter(
+        (r) => !suppressedKeys.has(archiveKey(tab, r['URL'] ?? '', r['Canonical query group'] ?? '')),
+      );
+      suppressedRecCount += before - rows.length;
+    }
+
+    const merged = mergePreservingReviewColumns(existingPulled, rows, groupKey, RECOMMENDATION_REVIEW_COLUMNS);
     await store.writeTab(tab, [...keptOther, ...merged]);
   };
-  await writeSplitTab(TAB.recommendations, actionable);
-  await writeSplitTab(TAB.rejected, rejected);
+  await writeSplitTab(TAB.recommendations, actionable, true);
+  await writeSplitTab(TAB.rejected, rejected, false);
   log(
-    `Recommendations: ${actionable.length} actionable; ${rejected.length} no-action rows moved to the Rejected tab (review columns preserved).`,
+    `Recommendations: ${actionable.length - suppressedRecCount} actionable; ${rejected.length} no-action rows in the Rejected tab` +
+      (suppressedRecCount > 0
+        ? `; ${suppressedRecCount} previously-actioned item(s) suppressed (see Archive).`
+        : '.'),
   );
 
   // --- Suggested Edits: copy-and-paste improvements per page ---
-  const editKey = (row: SheetRow) =>
-    `${normUrl(row['URL'] ?? '')}##${row['Edit type'] ?? ''}##${(row['Suggested copy'] ?? '')
-      .split('\n')[0]!
-      .trim()
-      .toLowerCase()}`;
-  const suggestedEdits = buildSuggestedEdits(analysed, pages, config);
-  const drafted = await applyLlmDrafts(suggestedEdits, pages, config, llm);
-  if (drafted > 0) log(`LLM drafted publishable copy for ${drafted}/${suggestedEdits.length} edit(s).`);
-  const editRows = suggestedEdits.map(suggestedEditToRow);
+  // Keyed by URL + edit type + first targeted keyword — stable across runs
+  // even when the (possibly LLM-drafted) copy wording changes.
+  const editItem = (row: SheetRow) =>
+    `${row['Edit type'] ?? ''} :: ${(row['Keywords targeted'] ?? '').split(';')[0]!.trim().toLowerCase()}`;
+  const editKey = (row: SheetRow) => `${normUrl(row['URL'] ?? '')}##${editItem(row)}`;
+
   const existingEdits = await store.readTab(TAB.suggestedEdits);
   const keptOtherEditUrls = existingEdits.filter(
     (r) => r['URL'] && !pulledUrls.has(normUrl(r['URL']!)),
   );
+  let existingPulledEdits = existingEdits.filter(
+    (r) => r['URL'] && pulledUrls.has(normUrl(r['URL']!)),
+  );
+  // Actioned edits move to the Archive and stay suppressed.
+  for (const row of existingPulledEdits) {
+    if (!isTerminal(row['Status'])) continue;
+    suppressedKeys.add(archiveKey(TAB.suggestedEdits, row['URL'] ?? '', editItem(row)));
+    newArchiveRows.push({
+      'Archived at': archivedAt,
+      'Source tab': TAB.suggestedEdits,
+      URL: row['URL'] ?? '',
+      Item: editItem(row),
+      Type: row['Edit type'] ?? '',
+      'Review status': row['Status'] ?? '',
+      'Reviewer notes': row['Reviewer notes'] ?? '',
+      'Search demand summary': row['Keywords targeted'] ?? '',
+      Details: row['Suggested copy'] ?? '',
+    });
+  }
+  existingPulledEdits = existingPulledEdits.filter((r) => !isTerminal(r['Status']));
+
+  const suggestedEdits = buildSuggestedEdits(analysed, pages, config);
+  const drafted = await applyLlmDrafts(suggestedEdits, pages, config, llm);
+  if (drafted > 0) log(`LLM drafted publishable copy for ${drafted}/${suggestedEdits.length} edit(s).`);
+  const allEditRows = suggestedEdits.map(suggestedEditToRow);
+  const editRows = allEditRows.filter(
+    (r) => !suppressedKeys.has(archiveKey(TAB.suggestedEdits, r['URL'] ?? '', editItem(r))),
+  );
+  const suppressedEditCount = allEditRows.length - editRows.length;
+
   const mergedEdits = mergePreservingReviewColumns(
-    existingEdits.filter((r) => r['URL'] && pulledUrls.has(normUrl(r['URL']!))),
+    existingPulledEdits,
     editRows,
     editKey,
     SUGGESTED_EDIT_REVIEW_COLUMNS,
     'Status',
   );
   await store.writeTab(TAB.suggestedEdits, [...keptOtherEditUrls, ...mergedEdits]);
-  log(`Suggested Edits: ${editRows.length} copy-and-paste edit(s).`);
+  log(
+    `Suggested Edits: ${editRows.length} copy-and-paste edit(s)` +
+      (suppressedEditCount > 0
+        ? `; ${suppressedEditCount} previously-actioned edit(s) suppressed (see Archive).`
+        : '.'),
+  );
+
+  if (newArchiveRows.length > 0) {
+    await store.appendRows(TAB.archive, newArchiveRows);
+    log(`Archive: moved ${newArchiveRows.length} actioned row(s) out of the working tabs.`);
+  }
 
   // --- New Page Ideas: one row per consolidated cluster ---
   const ideas = clusters.map((c) => buildNewPageIdea(c, config));

@@ -41,7 +41,7 @@ npm run apply-feedback                             # turn reviewer corrections i
 | Tab | Role |
 |---|---|
 | `Config` | Client, GSC property, date window (default: last 3 months), thresholds, locations, terminology, LLM settings |
-| `Input URLs` | One row per page to analyse (URL, page type, primary topic, target intent, …) |
+| `Input URLs` | One row per page to analyse (URL, page type, primary topic, target intent, …). Tick "Include in next run" to analyse only selected rows; leave all unticked to run everything |
 | `GSC Raw` | Hidden backend tab; one row per raw URL/query pair with full metrics |
 | `Page Content` | Extracted title, meta, H1, H2s, body text per analysed URL |
 | `Site URL Inventory` | Other known pages, used for cannibalisation checks (seed via sitemap import or manually) |
@@ -49,6 +49,7 @@ npm run apply-feedback                             # turn reviewer corrections i
 | `Recommendations` | The editorial review layer: one row per actionable recommendation + human review columns |
 | `Suggested Edits` | Copy-and-paste improvements: what to add, where on the page, which keywords it covers (H2s, body sentences, and one consolidated H3 FAQ set per page) |
 | `Rejected` | No-action rows with reasons, kept out of the main review list (same review columns, so a rejection can be overturned) |
+| `Archive` | History: rows marked approved/done/implemented move here on the next run and stay suppressed from future output — delete an Archive row to resurface its item |
 | `New Page Ideas` | Suggested new commercial pages and supporting content, consolidated one row per real-world page |
 | `Feedback Rules` | Reusable rules created from corrections (visible, editable, scoped) |
 | `Client Brief` | Business context and priorities |
@@ -68,6 +69,14 @@ Default decision rules (thresholds configurable in `src/config/defaults.ts`):
 - cannibalisation ≥4 with a better URL → `assign_to_existing_page`
 - relevance ≤2 or intent ≤2 → `reject` (a weakly-related distinct commercial group may still surface as a low-confidence new-page idea when it overlaps the wider site's topics)
 - phrase already prominent in a heading → no action; already covered naturally in body copy → no action unless it qualifies for a prominence upgrade
+
+## Monthly re-runs
+
+Re-running is designed to be cheap and non-destructive:
+
+- **Selector**: tick "Include in next run" on the `Input URLs` rows you want this month; unticked URLs keep all their existing rows untouched.
+- **Pull reuse**: a URL's raw GSC data is reused if pulled within the last 7 days (Config: `Reuse GSC pulls newer than (days)`; set 0 to always pull fresh). Pages are always re-fetched and re-analysed.
+- **Archive**: mark a recommendation or edit `approved`/`done`/`implemented` once you've actioned it — the next run moves it to the `Archive` tab and won't suggest it again (mention detection usually confirms the change too, since the phrase is now on the page).
 
 ## Giving feedback in the sheet
 

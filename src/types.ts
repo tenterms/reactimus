@@ -33,6 +33,12 @@ export interface InputUrlRow {
   notes: string;
   lastAnalysed: string;
   status: string;
+  /**
+   * "Include in next run" selector. When any row is ticked (yes/y/x/true/1),
+   * only ticked rows are pulled and analysed; when no row is ticked, all
+   * rows run. Unselected URLs keep their existing data untouched.
+   */
+  include: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -312,6 +318,12 @@ export interface ToolConfig {
   maxQueryGroupsPerUrl: number;
   llmProvider: 'none' | 'anthropic';
   llmModel: string;
+  /**
+   * Reuse a URL's raw GSC pull if it is newer than this many days instead of
+   * re-querying the API (0 = always pull fresh). Pages are always re-fetched
+   * and re-analysed; only the GSC query download is skipped.
+   */
+  reusePullDays: number;
   clientContext: string;
   businessPriorities: string;
   priorityTopics: string[];

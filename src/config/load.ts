@@ -17,6 +17,8 @@ const SETTERS: Record<string, (cfg: ToolConfig, value: string) => void> = {
   'minimum clicks threshold': (c, v) => (c.minClicks = int(v, c.minClicks)),
   'maximum raw queries per url': (c, v) => (c.maxRawQueriesPerUrl = int(v, c.maxRawQueriesPerUrl)),
   'maximum query groups per url': (c, v) => (c.maxQueryGroupsPerUrl = int(v, c.maxQueryGroupsPerUrl)),
+  'reuse gsc pulls newer than (days)': (c, v) => (c.reusePullDays = int(v, c.reusePullDays)),
+  'reuse pull days': (c, v) => (c.reusePullDays = int(v, c.reusePullDays)),
   'llm provider': (c, v) => (c.llmProvider = v.toLowerCase() === 'anthropic' ? 'anthropic' : 'none'),
   'llm model': (c, v) => (c.llmModel = v || c.llmModel),
   'client/business context': (c, v) => (c.clientContext = v),

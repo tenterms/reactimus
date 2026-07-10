@@ -85,7 +85,11 @@ export const MOCK_PAGES: Record<string, PageContentRow> = {
 };
 
 export class MockGscClient implements QuerySource {
+  /** URLs actually queried, for asserting pull-reuse and selector behaviour. */
+  calls: string[] = [];
+
   async queriesForUrl(config: ToolConfig, url: string) {
+    this.calls.push(url);
     const rows = MOCK_GSC_ROWS.filter(
       (r) =>
         r.url === url &&

@@ -274,6 +274,7 @@ export const DEFAULT_CONFIG: ToolConfig = {
   maxQueryGroupsPerUrl: 50,
   llmProvider: 'none',
   llmModel: 'claude-opus-4-8',
+  reusePullDays: 7,
   clientContext: '',
   businessPriorities: '',
   priorityTopics: [],

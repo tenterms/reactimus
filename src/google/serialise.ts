@@ -29,6 +29,7 @@ export function inputUrlFromRow(row: SheetRow): InputUrlRow {
     notes: row['Notes'] ?? '',
     lastAnalysed: row['Last analysed'] ?? '',
     status: row['Status'] ?? '',
+    include: row['Include in next run'] ?? '',
   };
 }
 
@@ -42,6 +43,7 @@ export function inputUrlToRow(input: InputUrlRow): SheetRow {
     Notes: input.notes,
     'Last analysed': input.lastAnalysed,
     Status: input.status,
+    'Include in next run': input.include,
   };
 }
 

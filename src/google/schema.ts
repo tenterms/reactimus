@@ -14,6 +14,7 @@ export const TAB = {
   recommendations: 'Recommendations',
   suggestedEdits: 'Suggested Edits',
   rejected: 'Rejected',
+  archive: 'Archive',
   newPageIdeas: 'New Page Ideas',
   feedbackRules: 'Feedback Rules',
   clientBrief: 'Client Brief',
@@ -31,6 +32,7 @@ export const HEADERS: Record<string, string[]> = {
     'Notes',
     'Last analysed',
     'Status',
+    'Include in next run',
   ],
   [TAB.gscRaw]: [
     'URL',
@@ -147,6 +149,17 @@ export const HEADERS: Record<string, string[]> = {
     'Feedback reason',
     'Remember this rule?',
     'Feedback scope',
+  ],
+  [TAB.archive]: [
+    'Archived at',
+    'Source tab',
+    'URL',
+    'Item',
+    'Type',
+    'Review status',
+    'Reviewer notes',
+    'Search demand summary',
+    'Details',
   ],
   [TAB.newPageIdeas]: [
     'Suggested page idea',

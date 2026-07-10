@@ -53,10 +53,10 @@ describe('end-to-end pipeline (offline)', () => {
     const store = new MemoryStore(DEMO_SEED);
     await runAnalyse(deps(store));
 
-    // Reviewer annotates a row.
+    // Reviewer annotates a row (non-terminal status: still being worked on).
     const recs = await store.readTab(TAB.recommendations);
     const idx = recs.findIndex((r) => r['Canonical query group'] === 'managed it support sheffield');
-    recs[idx]!['Review status'] = 'approved';
+    recs[idx]!['Review status'] = 'in review';
     recs[idx]!['Reviewer notes'] = 'Great catch — briefing copywriter.';
     await store.writeTab(TAB.recommendations, recs);
 
@@ -65,8 +65,75 @@ describe('end-to-end pipeline (offline)', () => {
     const after = await store.readTab(TAB.recommendations);
     expect(after.length).toBe(recs.length); // no duplication
     const row = after.find((r) => r['Canonical query group'] === 'managed it support sheffield');
-    expect(row?.['Review status']).toBe('approved');
+    expect(row?.['Review status']).toBe('in review');
     expect(row?.['Reviewer notes']).toBe('Great catch — briefing copywriter.');
+  });
+
+  it('archives approved rows and suppresses them on future runs', async () => {
+    const store = new MemoryStore(DEMO_SEED);
+    await runAnalyse(deps(store));
+
+    const recs = await store.readTab(TAB.recommendations);
+    const idx = recs.findIndex((r) => r['Canonical query group'] === 'managed it support sheffield');
+    recs[idx]!['Review status'] = 'done';
+    recs[idx]!['Reviewer notes'] = 'H2 added to the page.';
+    await store.writeTab(TAB.recommendations, recs);
+
+    await runAnalyse(deps(store));
+
+    // Row moved to Archive with its review trail...
+    const archive = await store.readTab(TAB.archive);
+    const archived = archive.find((r) => r['Item'] === 'managed it support sheffield');
+    expect(archived).toBeDefined();
+    expect(archived?.['Review status']).toBe('done');
+    expect(archived?.['Reviewer notes']).toBe('H2 added to the page.');
+    // ...and out of the working tab, staying suppressed on later runs too.
+    const afterFirst = await store.readTab(TAB.recommendations);
+    expect(afterFirst.some((r) => r['Canonical query group'] === 'managed it support sheffield')).toBe(false);
+    await runAnalyse(deps(store));
+    const afterSecond = await store.readTab(TAB.recommendations);
+    expect(afterSecond.some((r) => r['Canonical query group'] === 'managed it support sheffield')).toBe(false);
+    expect((await store.readTab(TAB.archive)).length).toBe(archive.length); // not re-archived
+  });
+
+  it('only pulls URLs ticked "Include in next run" when the selector is used', async () => {
+    const store = new MemoryStore({
+      ...DEMO_SEED,
+      [TAB.inputUrls]: [
+        { URL: URL_SUPPORT, 'Target intent': 'commercial', 'Include in next run': 'yes' },
+        { URL: 'https://acme-it.example.co.uk/it-services-sheffield/', 'Target intent': 'commercial' },
+      ],
+    });
+    const gsc = new MockGscClient();
+    await runAnalyse({ store, gsc, fetchPage: mockFetchPage, log: silent });
+
+    expect(gsc.calls).toEqual([URL_SUPPORT]); // unticked URL not pulled
+    // Unselected rows are kept in the tab, untouched.
+    const inputs = await store.readTab(TAB.inputUrls);
+    expect(inputs).toHaveLength(2);
+    const unticked = inputs.find((r) => r['URL']!.includes('it-services'));
+    expect(unticked?.['Last analysed']).toBe('');
+  });
+
+  it('reuses a recent GSC pull instead of re-querying the API', async () => {
+    const store = new MemoryStore(DEMO_SEED);
+    const gsc1 = new MockGscClient();
+    await runAnalyse({ store, gsc: gsc1, fetchPage: mockFetchPage, log: silent });
+    expect(gsc1.calls).toEqual([URL_SUPPORT]);
+
+    // Mark the stored pull as fresh (the fixture timestamp is in the past).
+    const raw = await store.readTab(TAB.gscRaw);
+    const now = new Date().toISOString();
+    for (const r of raw) r['Pulled at'] = now;
+    await store.writeTab(TAB.gscRaw, raw);
+
+    const gsc2 = new MockGscClient();
+    await runAnalyse({ store, gsc: gsc2, fetchPage: mockFetchPage, log: silent });
+    expect(gsc2.calls).toEqual([]); // cached pull reused (default 7-day window)
+    // Analysis still ran from the cached rows.
+    expect((await store.readTab(TAB.queryGroups)).length).toBeGreaterThan(0);
+    const inputs = await store.readTab(TAB.inputUrls);
+    expect(inputs[0]?.['Status']).toContain('reused GSC pull');
   });
 
   it('applies reviewer feedback as a rule on the next run (full loop)', async () => {

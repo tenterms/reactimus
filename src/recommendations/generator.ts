@@ -6,6 +6,7 @@ import type {
 } from '../types.js';
 import { contentTokens } from '../text/normalise.js';
 import { INFORMATIONAL_MARKERS } from '../config/defaults.js';
+import type { NewPageCluster } from './consolidate.js';
 
 function titleCase(phrase: string): string {
   return phrase
@@ -121,13 +122,28 @@ function suggestFaqQuestion(canonical: string): string {
   return `What should I know about ${canonical}?`;
 }
 
-/** Build a New Page Ideas row from a new_* classified group. */
-export function buildNewPageIdea(g: AnalysedGroup, config: ToolConfig): NewPageIdeaRow | null {
-  if (g.category !== 'new_commercial_page' && g.category !== 'new_supporting_content') {
-    return null;
-  }
+/**
+ * Build one New Page Ideas row from a consolidated cluster of new_* groups.
+ * The highest-demand group names the page; the others become supporting
+ * queries the same page should target.
+ */
+export function buildNewPageIdea(cluster: NewPageCluster, config: ToolConfig): NewPageIdeaRow {
+  const g = cluster.seed;
   const commercial = g.category === 'new_commercial_page';
-  const conflicting = g.scores.betterExistingUrl;
+  const conflicting =
+    cluster.members.map((m) => m.scores.betterExistingUrl).find(Boolean) ?? '';
+  const memberSummary =
+    cluster.members.length > 1
+      ? ` Consolidates ${cluster.members.length} related query groups: ${cluster.members
+          .map((m) => `"${m.canonicalQuery}" (${m.totalImpressions} imp)`)
+          .join(', ')}.`
+      : '';
+  const bestConfidence = Math.max(...cluster.members.map((m) => m.confidence));
+  const demandProxy: AnalysedGroup = {
+    ...g,
+    totalImpressions: cluster.totalImpressions,
+    totalClicks: cluster.totalClicks,
+  };
 
   return {
     suggestedPageIdea: commercial
@@ -137,21 +153,23 @@ export function buildNewPageIdea(g: AnalysedGroup, config: ToolConfig): NewPageI
     commercialOrInformational: commercial ? 'commercial' : 'informational',
     sourceUrl: g.url,
     sourceQueryGroup: g.canonicalQuery,
-    supportingQueryVariants: g.variants.map((v) => v.query).join('; '),
-    totalImpressions: g.totalImpressions,
-    totalClicks: g.totalClicks,
+    supportingQueryVariants: cluster.members
+      .flatMap((m) => m.variants.map((v) => v.query))
+      .join('; '),
+    totalImpressions: cluster.totalImpressions,
+    totalClicks: cluster.totalClicks,
     suggestedTargetIntent: commercial ? 'commercial' : 'informational',
-    whySeparatePage: g.rationale,
+    whySeparatePage: g.rationale + memberSummary,
     cannibalisationCheck:
-      cannibalisationNotes(g) ||
+      cluster.members.map(cannibalisationNotes).find(Boolean) ||
       (config.website
         ? 'No conflicting page found in the site inventory.'
         : 'Site inventory not available; verify manually.'),
     existingConflictingUrl: conflicting,
     suggestedUrlSlug: '/' + slugify(g.canonicalQuery) + '/',
     internalLinkingOpportunity: `Link from ${g.url} (the page whose GSC data surfaced this demand).`,
-    priority: priorityFromDemand(g),
-    confidence: g.confidence,
+    priority: priorityFromDemand(demandProxy),
+    confidence: bestConfidence,
     reviewStatus: '',
     reviewerNotes: '',
   };

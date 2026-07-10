@@ -32,6 +32,7 @@ export const COMMERCIAL_MARKERS = new Set([
   'consultant',
   'consultants',
   'consultancy',
+  'consulting',
   'provider',
   'providers',
   'firm',

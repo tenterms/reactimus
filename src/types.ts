@@ -105,7 +105,9 @@ export type MentionType =
   | 'exact'
   | 'close_variant'
   | 'concept_covered'
-  | 'not_covered';
+  | 'not_covered'
+  /** Page content could not be fetched — on-page checks were skipped. */
+  | 'unknown';
 
 export type MentionLocation = 'title' | 'meta_description' | 'h1' | 'h2' | 'body' | '';
 

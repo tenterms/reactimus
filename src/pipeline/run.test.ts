@@ -30,7 +30,14 @@ describe('end-to-end pipeline (offline)', () => {
     const byGroup = new Map(recs.map((r) => [r['Canonical query group'], r]));
     expect(byGroup.get('it services sheffield')?.['Recommendation type']).toBe('assign_to_existing_page');
     expect(byGroup.get('managed it support sheffield')?.['Recommendation type']).toBe('add_to_h2');
-    expect(byGroup.get('it support jobs sheffield')?.['Recommendation type']).toBe('reject');
+    // No-action rows live in the Rejected tab, keeping Recommendations clean.
+    expect(byGroup.has('it support jobs sheffield')).toBe(false);
+    const rejectedTab = await store.readTab(TAB.rejected);
+    expect(
+      rejectedTab.find((r) => r['Canonical query group'] === 'it support jobs sheffield')?.[
+        'Recommendation type'
+      ],
+    ).toBe('reject');
 
     const ideas = await store.readTab(TAB.newPageIdeas);
     expect(ideas.some((i) => i['Source query group'] === 'it support rotherham')).toBe(true);
@@ -83,9 +90,9 @@ describe('end-to-end pipeline (offline)', () => {
     const marked = await store.readTab(TAB.recommendations);
     expect(marked[idx]!['Remember this rule?']).toMatch(/^saved:/);
 
-    // Next analysis applies the rule.
+    // Next analysis applies the rule: the group moves to the Rejected tab.
     await runAnalyse(deps(store));
-    const rerun = await store.readTab(TAB.recommendations);
+    const rerun = await store.readTab(TAB.rejected);
     const row = rerun.find((r) => r['Canonical query group'] === 'remote it support sheffield');
     expect(row?.['Recommendation type']).toBe('reject');
     expect(row?.['Suggested content tweak']).toContain(rules[0]!['Rule ID']);
@@ -115,6 +122,39 @@ describe('end-to-end pipeline (offline)', () => {
     const merged = after.find((g) => g['Canonical query group'] === 'it support sheffield');
     expect(after.some((g) => g['Canonical query group'] === 'managed it support sheffield')).toBe(false);
     expect(merged?.['Query variants']).toContain('managed it support sheffield');
+  });
+
+  it('flags recommendations honestly when the page cannot be fetched', async () => {
+    const store = new MemoryStore(DEMO_SEED);
+    const failingFetch = async (url: string) => ({
+      url,
+      httpStatus: 403,
+      canonicalUrl: '',
+      titleTag: '',
+      metaDescription: '',
+      h1: '',
+      h2s: [],
+      bodyText: '',
+      wordCount: 0,
+      lastFetched: '2026-07-10T00:00:00Z',
+    });
+    await runAnalyse({ store, gsc: new MockGscClient(), fetchPage: failingFetch, log: silent });
+
+    // Nothing polluted the inventory with empty titles.
+    const inventory = await store.readTab(TAB.siteInventory);
+    expect(inventory.every((r) => r['Title tag'] !== '' || r['Notes'] !== 'auto-added from analysed pages')).toBe(true);
+
+    // Every surviving recommendation is capped and flagged.
+    const recs = await store.readTab(TAB.recommendations);
+    for (const r of recs) {
+      expect(parseFloat(r['Confidence']!)).toBeLessThanOrEqual(0.4);
+      expect(r['Suggested content tweak']).toContain('PAGE CONTENT UNAVAILABLE');
+      expect(r['Existing page evidence']).toContain('page not fetched');
+    }
+
+    // Input URLs record the fetch failure.
+    const inputs = await store.readTab(TAB.inputUrls);
+    expect(inputs[0]?.['Status']).toContain('403');
   });
 
   it('URLs in Input URLs get status and last-analysed stamps', async () => {

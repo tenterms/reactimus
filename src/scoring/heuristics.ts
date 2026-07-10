@@ -310,6 +310,10 @@ function scoreDistinctTopic(
   notes: string[],
 ): { score: number; unknownQualifier: string } {
   const config = ctx.config;
+  if (mention.type === 'unknown') {
+    notes.push('Distinct-topic: page content unavailable; defaulting to 3 (could be subsection or separate page).');
+    return { score: 3, unknownQualifier: '' };
+  }
   if (mention.type === 'exact' || mention.type === 'close_variant') {
     notes.push('Distinct-topic: phrase already on page → part of current page.');
     return { score: 1, unknownQualifier: '' };

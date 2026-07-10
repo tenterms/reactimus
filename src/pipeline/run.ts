@@ -34,6 +34,7 @@ import { detectMention } from '../mentions/detector.js';
 import { scoreGroup } from '../scoring/heuristics.js';
 import { analyseGroup } from '../classify/decisionRules.js';
 import { buildNewPageIdea, buildRecommendation } from '../recommendations/generator.js';
+import { consolidateNewPageGroups } from '../recommendations/consolidate.js';
 import { compileRules } from '../rules/engine.js';
 import { processFeedback } from '../rules/feedback.js';
 import { createLlmAdapter } from '../llm/adapter.js';
@@ -142,15 +143,18 @@ export async function runAnalyse(deps: PipelineDeps, options: { pullOnly?: boole
     [...existingContent, ...pages.values()].map(pageContentToRow),
   );
 
-  // --- Site inventory: read, and seed missing entries from analysed pages ---
+  // --- Site inventory: read, seed/refresh entries from successfully
+  // fetched pages (failed fetches must not pollute the inventory) ---
   const inventory = (await store.readTab(TAB.siteInventory))
     .map(inventoryFromRow)
     .filter((i) => i.url);
-  const inventoryUrls = new Set(inventory.map((i) => normUrl(i.url)));
+  const inventoryByUrl = new Map(inventory.map((i) => [normUrl(i.url), i]));
   const inputByUrl = new Map(inputs.map((i) => [normUrl(i.url), i]));
   for (const page of pages.values()) {
-    if (!inventoryUrls.has(normUrl(page.url))) {
-      const meta = inputByUrl.get(normUrl(page.url));
+    if (page.httpStatus !== 200) continue;
+    const meta = inputByUrl.get(normUrl(page.url));
+    const existing = inventoryByUrl.get(normUrl(page.url));
+    if (!existing) {
       inventory.push({
         url: page.url,
         titleTag: page.titleTag,
@@ -161,9 +165,23 @@ export async function runAnalyse(deps: PipelineDeps, options: { pullOnly?: boole
         canonicalUrl: page.canonicalUrl,
         notes: 'auto-added from analysed pages',
       });
+    } else if (!existing.titleTag && !existing.h1) {
+      existing.titleTag = page.titleTag;
+      existing.h1 = page.h1;
+      existing.canonicalUrl = existing.canonicalUrl || page.canonicalUrl;
     }
   }
   await store.writeTab(TAB.siteInventory, inventory.map(inventoryToRow));
+
+  const failedPages = [...pages.values()].filter((p) => p.httpStatus !== 200);
+  if (failedPages.length > 0) {
+    log(
+      `WARNING: ${failedPages.length} of ${pages.size} page(s) could not be fetched ` +
+        `(${failedPages.map((p) => `${p.url} → HTTP ${p.httpStatus}`).join('; ')}). ` +
+        `On-page mention checks are skipped for those URLs and their recommendations are ` +
+        `flagged low-confidence. Fix page access before trusting on-page judgements.`,
+    );
+  }
 
   const finishInputs = async () => {
     const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
@@ -198,7 +216,15 @@ export async function runAnalyse(deps: PipelineDeps, options: { pullOnly?: boole
     const page = pages.get(key);
     if (!page) continue;
     const inputMeta = inputByUrl.get(key);
-    const mention = detectMention(group, page);
+    const pageUnavailable = page.httpStatus !== 200;
+    const mention = pageUnavailable
+      ? ({
+          mentioned: false,
+          type: 'unknown',
+          evidence: `page not fetched (HTTP ${page.httpStatus}) — on-page checks skipped`,
+          location: '',
+        } as const)
+      : detectMention(group, page);
     const scores = scoreGroup(group, mention, {
       page,
       inputMeta,
@@ -216,7 +242,19 @@ export async function runAnalyse(deps: PipelineDeps, options: { pullOnly?: boole
       if (review.rationale) scores.scoreNotes.push(`LLM: ${review.rationale}`);
     }
 
-    analysed.push(analyseGroup(group, scores, mention, compiled));
+    let result = analyseGroup(group, scores, mention, compiled);
+    if (pageUnavailable) {
+      // Never claim confident on-page judgements about a page we never saw.
+      result = {
+        ...result,
+        confidence: Math.min(result.confidence, 0.4),
+        rationale:
+          `PAGE CONTENT UNAVAILABLE (HTTP ${page.httpStatus}) — scored from declared topic and ` +
+          `site inventory only; verify against the live page. ` +
+          result.rationale,
+      };
+    }
+    analysed.push(result);
   }
   log(`Analysed ${analysed.length} query group(s) from ${allRaw.length} raw queries.`);
 
@@ -226,29 +264,55 @@ export async function runAnalyse(deps: PipelineDeps, options: { pullOnly?: boole
   );
   await store.writeTab(TAB.queryGroups, [...existingGroups, ...analysed.map(analysedGroupToRow)]);
 
-  // --- Recommendations: merge, preserving human review columns ---
+  // --- Consolidate new-page groups into one idea per real-world page ---
+  const newPageGroups = analysed.filter(
+    (g) => g.category === 'new_commercial_page' || g.category === 'new_supporting_content',
+  );
+  const clusters = consolidateNewPageGroups(newPageGroups);
+  const clusterBySeedlessMember = new Map<string, string>(); // member key -> seed page title
+  for (const cluster of clusters) {
+    for (const member of cluster.members) {
+      clusterBySeedlessMember.set(
+        `${normUrl(member.url)}##${member.canonicalQuery.toLowerCase()}`,
+        cluster.seed.canonicalQuery,
+      );
+    }
+  }
+
+  // --- Recommendations (actionable) and Rejected (no-action) tabs ---
   const actionable = analysed.filter((g) => g.category !== 'reject');
   const rejected = analysed.filter((g) => g.category === 'reject');
-  const computedRecRows = analysed.map((g) => recommendationToRow(buildRecommendation(g)));
-  const existingRecs = await store.readTab(TAB.recommendations);
-  const keptOtherUrls = existingRecs.filter(
-    (r) => r['URL'] && !pulledUrls.has(normUrl(r['URL']!)),
-  );
-  const mergedRecs = mergePreservingReviewColumns(
-    existingRecs.filter((r) => r['URL'] && pulledUrls.has(normUrl(r['URL']!))),
-    computedRecRows,
-    groupKey,
-    RECOMMENDATION_REVIEW_COLUMNS,
-  );
-  await store.writeTab(TAB.recommendations, [...keptOtherUrls, ...mergedRecs]);
+
+  const toRow = (g: AnalysedGroup) => {
+    const rec = buildRecommendation(g);
+    const clusterTitle = clusterBySeedlessMember.get(
+      `${normUrl(g.url)}##${g.canonicalQuery.toLowerCase()}`,
+    );
+    if (clusterTitle && clusterTitle !== g.canonicalQuery) {
+      rec.suggestedPlacement = `Consolidated into new page idea "${clusterTitle}" (see New Page Ideas)`;
+    }
+    return recommendationToRow(rec);
+  };
+
+  const writeSplitTab = async (tab: string, groups: AnalysedGroup[]) => {
+    const existing = await store.readTab(tab);
+    const keptOther = existing.filter((r) => r['URL'] && !pulledUrls.has(normUrl(r['URL']!)));
+    const merged = mergePreservingReviewColumns(
+      existing.filter((r) => r['URL'] && pulledUrls.has(normUrl(r['URL']!))),
+      groups.map(toRow),
+      groupKey,
+      RECOMMENDATION_REVIEW_COLUMNS,
+    );
+    await store.writeTab(tab, [...keptOther, ...merged]);
+  };
+  await writeSplitTab(TAB.recommendations, actionable);
+  await writeSplitTab(TAB.rejected, rejected);
   log(
-    `Recommendations: ${actionable.length} actionable, ${rejected.length} rejected/no-action (review columns preserved).`,
+    `Recommendations: ${actionable.length} actionable; ${rejected.length} no-action rows moved to the Rejected tab (review columns preserved).`,
   );
 
-  // --- New Page Ideas ---
-  const ideas = analysed
-    .map((g) => buildNewPageIdea(g, config))
-    .filter((idea): idea is NonNullable<typeof idea> => idea !== null);
+  // --- New Page Ideas: one row per consolidated cluster ---
+  const ideas = clusters.map((c) => buildNewPageIdea(c, config));
   const existingIdeas = await store.readTab(TAB.newPageIdeas);
   const keptOtherIdeaUrls = existingIdeas.filter(
     (r) => r['Source URL'] && !pulledUrls.has(normUrl(r['Source URL']!)),
@@ -260,7 +324,9 @@ export async function runAnalyse(deps: PipelineDeps, options: { pullOnly?: boole
     NEW_PAGE_REVIEW_COLUMNS,
   );
   await store.writeTab(TAB.newPageIdeas, [...keptOtherIdeaUrls, ...mergedIdeas]);
-  log(`New Page Ideas: ${ideas.length} suggestion(s).`);
+  log(
+    `New Page Ideas: ${ideas.length} consolidated idea(s) from ${newPageGroups.length} query group(s).`,
+  );
 
   await finishInputs();
   log('Analysis complete.');
@@ -276,31 +342,40 @@ export async function runApplyFeedback(deps: Pick<PipelineDeps, 'store' | 'log'>
 
   await store.ensureTabs();
   const config = loadConfigFromRows(await store.readTab(TAB.config));
-  const recRows = await store.readTab(TAB.recommendations);
 
-  const { rules, logs, processedMarkers } = processFeedback(recRows, {
-    client: config.clientName,
-    site: config.gscProperty || config.website,
-    user,
-  });
+  // Reviewers can correct rows in both the actionable and rejected tabs
+  // (e.g. resurrecting a rejected group with a corrected category).
+  let totalRules = 0;
+  let totalLogs = 0;
+  let hasDrafts = false;
+  for (const tab of [TAB.recommendations, TAB.rejected]) {
+    const rows = await store.readTab(tab);
+    const { rules, logs, processedMarkers } = processFeedback(rows, {
+      client: config.clientName,
+      site: config.gscProperty || config.website,
+      user,
+    });
+    if (rules.length === 0 && logs.length === 0) continue;
 
-  if (rules.length === 0 && logs.length === 0) {
+    await store.appendRows(TAB.feedbackRules, rules.map(feedbackRuleToRow));
+    await store.appendRows(TAB.reviewLog, logs.map(reviewLogToRow));
+
+    // Mark processed rows. "Remember this rule?" is column S (19th) in both
+    // tabs; data rows start at sheet row 2.
+    for (const { rowIndex, marker } of processedMarkers) {
+      await store.updateCell(tab, `S${rowIndex + 2}`, marker);
+    }
+    totalRules += rules.length;
+    totalLogs += logs.length;
+    hasDrafts = hasDrafts || rules.some((r) => r.status === 'draft');
+  }
+
+  if (totalRules === 0 && totalLogs === 0) {
     log('No unprocessed reviewer corrections found.');
     return;
   }
-
-  await store.appendRows(TAB.feedbackRules, rules.map(feedbackRuleToRow));
-  await store.appendRows(TAB.reviewLog, logs.map(reviewLogToRow));
-
-  // Mark processed rows. "Remember this rule?" is column S (19th) in the
-  // Recommendations tab; data rows start at sheet row 2.
-  const rememberColumn = 'S';
-  for (const { rowIndex, marker } of processedMarkers) {
-    await store.updateCell(TAB.recommendations, `${rememberColumn}${rowIndex + 2}`, marker);
-  }
-
-  log(`Created ${rules.length} feedback rule(s) and ${logs.length} review log entry(ies).`);
-  if (rules.some((r) => r.status === 'draft')) {
+  log(`Created ${totalRules} feedback rule(s) and ${totalLogs} review log entry(ies).`);
+  if (hasDrafts) {
     log('Note: global-scope rules were saved as drafts and need admin approval (set Status=active).');
   }
   log('Re-run `npm run analyse` to apply the new rules.');

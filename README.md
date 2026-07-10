@@ -46,8 +46,10 @@ npm run apply-feedback                             # turn reviewer corrections i
 | `Page Content` | Extracted title, meta, H1, H2s, body text per analysed URL |
 | `Site URL Inventory` | Other known pages, used for cannibalisation checks (seed via sitemap import or manually) |
 | `Query Groups` | The analysis layer: one row per query group with metrics, mention detection, and all five scores |
-| `Recommendations` | The editorial review layer: one row per recommendation + human review columns |
-| `New Page Ideas` | Suggested new commercial pages and supporting content |
+| `Recommendations` | The editorial review layer: one row per actionable recommendation + human review columns |
+| `Suggested Edits` | Copy-and-paste improvements: what to add, where on the page, which keywords it covers (H2s, body sentences, and one consolidated H3 FAQ set per page) |
+| `Rejected` | No-action rows with reasons, kept out of the main review list (same review columns, so a rejection can be overturned) |
+| `New Page Ideas` | Suggested new commercial pages and supporting content, consolidated one row per real-world page |
 | `Feedback Rules` | Reusable rules created from corrections (visible, editable, scoped) |
 | `Client Brief` | Business context and priorities |
 | `Review Log` | Immutable audit trail of every correction |
@@ -58,8 +60,9 @@ npm run apply-feedback                             # turn reviewer corrections i
 
 Default decision rules (thresholds configurable in `src/config/defaults.ts`):
 
-- relevance ≥4, intent ≥4, commerciality ≥4, distinct ≤2, cannibalisation ≤2 → `add_to_h2`
-- same but commerciality <4 → `add_to_body`, or `add_to_faq` when question-led
+- `add_to_h2` is reserved for undeniable cases only: the phrase already sits in body copy and deserves promotion to a heading, or it is a modifier-variant of the page's own headline topic with ≥100 impressions — everything else relevant and commercial goes to `add_to_body`
+- relevance ≥4, intent ≥4, commerciality <4, distinct ≤2 → `add_to_body`, or `add_to_faq` when question-led (FAQs are output as H3 question sets)
+- long conversational queries (AI-assistant/voice-style) never become headings or pages: relevant ones → `add_to_faq`, weak-fit ones → rejected as demand signals
 - commerciality ≥4, distinct ≥3, cannibalisation ≤2 → `new_commercial_page`
 - relevance ≥3, informational, distinct ≥3 → `new_supporting_content`
 - cannibalisation ≥4 with a better URL → `assign_to_existing_page`

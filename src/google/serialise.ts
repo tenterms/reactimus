@@ -222,6 +222,23 @@ export function newPageIdeaToRow(n: NewPageIdeaRow): SheetRow {
   };
 }
 
+// --- Suggested Edits ---
+
+export function suggestedEditToRow(e: import('../types.js').SuggestedEditRow): SheetRow {
+  return {
+    URL: e.url,
+    'Edit type': e.editType,
+    'Where on the page': e.whereOnPage,
+    'Suggested copy': e.suggestedCopy,
+    'Keywords targeted': e.keywordsTargeted,
+    Why: e.why,
+    Priority: e.priority,
+    Confidence: e.confidence.toFixed(2),
+    Status: e.status,
+    'Reviewer notes': e.reviewerNotes,
+  };
+}
+
 // --- Feedback Rules ---
 
 export function feedbackRuleFromRow(row: SheetRow): FeedbackRule {

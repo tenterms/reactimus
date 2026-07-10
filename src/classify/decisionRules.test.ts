@@ -29,6 +29,7 @@ function scores(overrides: Partial<GroupScores>): GroupScores {
     cannibalisationRisk: 1,
     betterExistingUrl: '',
     unknownQualifier: '',
+    headSynonym: false,
     scoreNotes: [],
     ...overrides,
   };
@@ -37,13 +38,46 @@ function scores(overrides: Partial<GroupScores>): GroupScores {
 const NOT_COVERED: MentionResult = { mentioned: false, type: 'not_covered', evidence: '', location: '' };
 
 describe('classifyGroup default decision rules', () => {
-  it('recommends add_to_h2 for relevant, commercial, non-distinct groups', () => {
+  it('recommends add_to_h2 for headline-topic variants with real demand', () => {
+    const d = classifyGroup(
+      group('it support company sheffield'),
+      scores({
+        topicalRelevance: 5,
+        intentMatch: 5,
+        commerciality: 4,
+        distinctTopic: 2,
+        cannibalisationRisk: 1,
+        headSynonym: true,
+      }),
+      NOT_COVERED,
+    );
+    expect(d.category).toBe('add_to_h2');
+  });
+
+  it('demotes commercial-but-not-undeniable groups to body copy', () => {
     const d = classifyGroup(
       group('managed it support sheffield'),
       scores({ topicalRelevance: 4, intentMatch: 5, commerciality: 4, distinctTopic: 2, cannibalisationRisk: 1 }),
       NOT_COVERED,
     );
-    expect(d.category).toBe('add_to_h2');
+    expect(d.category).toBe('add_to_body');
+    expect(d.rationale).toContain('not an undeniable heading');
+  });
+
+  it('does not give H2s to low-demand headline variants', () => {
+    const d = classifyGroup(
+      group('it support company sheffield', 40, 1),
+      scores({
+        topicalRelevance: 5,
+        intentMatch: 5,
+        commerciality: 4,
+        distinctTopic: 2,
+        cannibalisationRisk: 1,
+        headSynonym: true,
+      }),
+      NOT_COVERED,
+    );
+    expect(d.category).toBe('add_to_body');
   });
 
   it('recommends add_to_body for relevant but less commercial groups', () => {

@@ -115,6 +115,15 @@ export function scoreGroup(
     notes,
   );
 
+  // Undeniable rephrasing of the page's own headline topic? (Modifiers like
+  // services/company/uk aside, every topic word is already in title/H1.)
+  const modifierFree = coreTokens(tokens).filter(
+    (t) => !COMMERCIAL_MARKERS.has(t) && !GEO_MODIFIERS.has(t),
+  );
+  const headSynonym =
+    modifierFree.length > 0 && modifierFree.every((t) => profile.headTokens.has(t));
+  if (headSynonym) notes.push('Query is a modifier-variant of the page headline topic.');
+
   return {
     topicalRelevance,
     intentMatch,
@@ -123,6 +132,7 @@ export function scoreGroup(
     cannibalisationRisk,
     betterExistingUrl: betterUrl,
     unknownQualifier,
+    headSynonym,
     scoreNotes: notes,
   };
 }

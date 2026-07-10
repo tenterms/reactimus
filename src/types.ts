@@ -137,6 +137,13 @@ export interface GroupScores {
    * rather than spawning per-qualifier new-page ideas.
    */
   unknownQualifier: string;
+  /**
+   * True when the query's topic words (ignoring commercial/geo modifiers)
+   * are all present in the page's title/H1/primary topic — i.e. the query is
+   * an undeniable rephrasing of what the page is already about. Only these
+   * (or phrases already sitting in body copy) may earn an H2 suggestion.
+   */
+  headSynonym: boolean;
   scoreNotes: string[];
 }
 
@@ -203,6 +210,25 @@ export interface NewPageIdeaRow {
   priority: 'high' | 'medium' | 'low';
   confidence: number;
   reviewStatus: string;
+  reviewerNotes: string;
+}
+
+// ---------------------------------------------------------------------------
+// Suggested Edits (tab: "Suggested Edits") — copy-and-paste improvements
+// ---------------------------------------------------------------------------
+
+export type SuggestedEditType = 'New H2 section' | 'Body copy' | 'FAQ (H3 questions)';
+
+export interface SuggestedEditRow {
+  url: string;
+  editType: SuggestedEditType;
+  whereOnPage: string;
+  suggestedCopy: string;
+  keywordsTargeted: string;
+  why: string;
+  priority: 'high' | 'medium' | 'low';
+  confidence: number;
+  status: string;
   reviewerNotes: string;
 }
 

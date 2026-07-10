@@ -163,15 +163,31 @@ export function classifyGroup(
     scores.distinctTopic <= t.h2MaxDistinct &&
     scores.cannibalisationRisk <= t.h2MaxCannibalisation;
 
-  // --- 5. add_to_h2: relevant, commercial, strengthens the core offer ---
+  // --- 5. add_to_h2: reserved for undeniable cases only ---
+  // Headings are the scarcest real estate on a page, so an H2 suggestion
+  // needs one of two justifications: the phrase is already sitting in body
+  // copy and deserves promotion, or it is a modifier-variant of the page's
+  // own headline topic with meaningful demand. Everything else relevant and
+  // commercial goes to body copy instead.
   if (addable && scores.commerciality >= t.h2MinCommerciality) {
-    const prominence =
-      mention.type === 'exact' || mention.type === 'close_variant'
-        ? ' Phrase already appears in body copy; the recommendation is to improve prominence.'
-        : '';
+    const bodyProminence = mention.type === 'exact' || mention.type === 'close_variant';
+    if (bodyProminence) {
+      return {
+        category: 'add_to_h2',
+        rationale: `Phrase already appears in body copy ("${mention.evidence}"); promote it to a section heading for prominence.`,
+        confidence: dataConfidence,
+      };
+    }
+    if (scores.headSynonym && group.totalImpressions >= 100) {
+      return {
+        category: 'add_to_h2',
+        rationale: `Undeniable variant of the page's own headline topic with real demand (${group.totalImpressions} impressions) that is not yet covered — a natural section heading.`,
+        confidence: dataConfidence,
+      };
+    }
     return {
-      category: 'add_to_h2',
-      rationale: `Highly relevant commercial query group (relevance ${scores.topicalRelevance}, intent ${scores.intentMatch}, commerciality ${scores.commerciality}) that would work as a section heading.${prominence}`,
+      category: 'add_to_body',
+      rationale: `Relevant commercial variant (relevance ${scores.topicalRelevance}, commerciality ${scores.commerciality}), but not an undeniable heading — work it into paragraph copy naturally instead.`,
       confidence: dataConfidence,
     };
   }

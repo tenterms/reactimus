@@ -12,6 +12,7 @@ export const TAB = {
   siteInventory: 'Site URL Inventory',
   queryGroups: 'Query Groups',
   recommendations: 'Recommendations',
+  suggestedEdits: 'Suggested Edits',
   rejected: 'Rejected',
   newPageIdeas: 'New Page Ideas',
   feedbackRules: 'Feedback Rules',
@@ -113,6 +114,18 @@ export const HEADERS: Record<string, string[]> = {
     'Remember this rule?',
     'Feedback scope',
   ],
+  [TAB.suggestedEdits]: [
+    'URL',
+    'Edit type',
+    'Where on the page',
+    'Suggested copy',
+    'Keywords targeted',
+    'Why',
+    'Priority',
+    'Confidence',
+    'Status',
+    'Reviewer notes',
+  ],
   [TAB.rejected]: [
     'URL',
     'Recommendation type',
@@ -207,6 +220,9 @@ export const RECOMMENDATION_REVIEW_COLUMNS = [
 
 /** Human review columns in New Page Ideas that the tool must never overwrite. */
 export const NEW_PAGE_REVIEW_COLUMNS = ['Review status', 'Reviewer notes'];
+
+/** Human review columns in Suggested Edits that the tool must never overwrite. */
+export const SUGGESTED_EDIT_REVIEW_COLUMNS = ['Status', 'Reviewer notes'];
 
 /** Tabs that are backend/data tabs and should be hidden from reviewers. */
 export const HIDDEN_TABS: string[] = [TAB.gscRaw];

@@ -41,6 +41,12 @@ describe('end-to-end pipeline (offline)', () => {
 
     const ideas = await store.readTab(TAB.newPageIdeas);
     expect(ideas.some((i) => i['Source query group'] === 'it support rotherham')).toBe(true);
+
+    // Copy-and-paste layer: every on-page category produces a Suggested Edit.
+    const edits = await store.readTab(TAB.suggestedEdits);
+    expect(edits.length).toBeGreaterThan(0);
+    expect(edits.some((e) => e['Edit type'] === 'FAQ (H3 questions)')).toBe(true);
+    expect(edits.every((e) => e['Suggested copy'] !== '')).toBe(true);
   });
 
   it('re-runs without duplicating rows and preserves review columns', async () => {
@@ -86,7 +92,7 @@ describe('end-to-end pipeline (offline)', () => {
     expect(rules[0]!['Status']).toBe('active');
     const log = await store.readTab(TAB.reviewLog);
     expect(log).toHaveLength(1);
-    expect(log[0]!['Original decision']).toBe('add_to_h2');
+    expect(log[0]!['Original decision']).toBe('add_to_body');
     const marked = await store.readTab(TAB.recommendations);
     expect(marked[idx]!['Remember this rule?']).toMatch(/^saved:/);
 

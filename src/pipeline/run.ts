@@ -10,6 +10,7 @@ import { mergePreservingReviewColumns } from '../google/sheets.js';
 import {
   NEW_PAGE_REVIEW_COLUMNS,
   RECOMMENDATION_REVIEW_COLUMNS,
+  SUGGESTED_EDIT_REVIEW_COLUMNS,
   TAB,
 } from '../google/schema.js';
 import {
@@ -27,6 +28,7 @@ import {
   pageContentToRow,
   recommendationToRow,
   reviewLogToRow,
+  suggestedEditToRow,
 } from '../google/serialise.js';
 import { loadConfigFromRows } from '../config/load.js';
 import { groupQueries } from '../grouping/grouper.js';
@@ -35,6 +37,7 @@ import { scoreGroup } from '../scoring/heuristics.js';
 import { analyseGroup } from '../classify/decisionRules.js';
 import { buildNewPageIdea, buildRecommendation } from '../recommendations/generator.js';
 import { consolidateNewPageGroups } from '../recommendations/consolidate.js';
+import { buildSuggestedEdits } from '../recommendations/suggestedEdits.js';
 import { compileRules } from '../rules/engine.js';
 import { processFeedback } from '../rules/feedback.js';
 import { createLlmAdapter } from '../llm/adapter.js';
@@ -310,6 +313,27 @@ export async function runAnalyse(deps: PipelineDeps, options: { pullOnly?: boole
   log(
     `Recommendations: ${actionable.length} actionable; ${rejected.length} no-action rows moved to the Rejected tab (review columns preserved).`,
   );
+
+  // --- Suggested Edits: copy-and-paste improvements per page ---
+  const editKey = (row: SheetRow) =>
+    `${normUrl(row['URL'] ?? '')}##${row['Edit type'] ?? ''}##${(row['Suggested copy'] ?? '')
+      .split('\n')[0]!
+      .trim()
+      .toLowerCase()}`;
+  const editRows = buildSuggestedEdits(analysed, pages, config).map(suggestedEditToRow);
+  const existingEdits = await store.readTab(TAB.suggestedEdits);
+  const keptOtherEditUrls = existingEdits.filter(
+    (r) => r['URL'] && !pulledUrls.has(normUrl(r['URL']!)),
+  );
+  const mergedEdits = mergePreservingReviewColumns(
+    existingEdits.filter((r) => r['URL'] && pulledUrls.has(normUrl(r['URL']!))),
+    editRows,
+    editKey,
+    SUGGESTED_EDIT_REVIEW_COLUMNS,
+    'Status',
+  );
+  await store.writeTab(TAB.suggestedEdits, [...keptOtherEditUrls, ...mergedEdits]);
+  log(`Suggested Edits: ${editRows.length} copy-and-paste edit(s).`);
 
   // --- New Page Ideas: one row per consolidated cluster ---
   const ideas = clusters.map((c) => buildNewPageIdea(c, config));

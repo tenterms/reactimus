@@ -8,10 +8,12 @@ import { contentTokens } from '../text/normalise.js';
 import { INFORMATIONAL_MARKERS } from '../config/defaults.js';
 import type { NewPageCluster } from './consolidate.js';
 
-function titleCase(phrase: string): string {
+export function titleCase(phrase: string): string {
   return phrase
     .split(/\s+/)
-    .map((w) => (w.length <= 2 && w === w.toLowerCase() ? w : w[0]!.toUpperCase() + w.slice(1)))
+    .map((w, i) =>
+      i > 0 && w.length <= 2 && w === w.toLowerCase() ? w : w[0]!.toUpperCase() + w.slice(1),
+    )
     .join(' ');
 }
 
@@ -19,7 +21,7 @@ function slugify(phrase: string): string {
   return contentTokens(phrase, { singularise: false }).join('-');
 }
 
-function priorityFromDemand(g: AnalysedGroup): 'high' | 'medium' | 'low' {
+export function priorityFromDemand(g: AnalysedGroup): 'high' | 'medium' | 'low' {
   if (g.totalImpressions >= 500 || g.totalClicks >= 20) return 'high';
   if (g.totalImpressions >= 100 || g.totalClicks >= 5) return 'medium';
   return 'low';
@@ -86,10 +88,10 @@ export function buildRecommendation(g: AnalysedGroup): RecommendationRow {
         `avoid bolted-on SEO sentences. Rationale: ${g.rationale}`;
       break;
     case 'add_to_faq':
-      base.suggestedPlacement = 'FAQ section on this page';
+      base.suggestedPlacement = 'FAQ section on this page (H3 question + short answer)';
       base.suggestedContentTweak =
-        `Add an FAQ answering "${suggestFaqQuestion(g.canonicalQuery)}" with a short, direct answer. ` +
-        `Rationale: ${g.rationale}`;
+        `Add an H3 FAQ answering "${suggestFaqQuestion(g.canonicalQuery)}" with a short, direct answer — ` +
+        `see the Suggested Edits tab for draft copy. Rationale: ${g.rationale}`;
       break;
     case 'new_commercial_page':
       base.suggestedPlacement = 'New commercial page (see New Page Ideas tab)';
@@ -113,13 +115,16 @@ export function buildRecommendation(g: AnalysedGroup): RecommendationRow {
   return base;
 }
 
-function suggestFaqQuestion(canonical: string): string {
-  const tokens = canonical.toLowerCase().split(/\s+/);
-  const startsWithQuestionWord = tokens.length > 0 && INFORMATIONAL_MARKERS.has(tokens[0]!);
+export function suggestFaqQuestion(canonical: string): string {
+  const phrase = canonical.replace(/\?+\s*$/, '').trim();
+  const tokens = phrase.toLowerCase().split(/\s+/);
+  const startsWithQuestionWord =
+    tokens.length > 0 &&
+    (INFORMATIONAL_MARKERS.has(tokens[0]!) || ['can', 'do', 'does', 'is', 'are', 'should'].includes(tokens[0]!));
   if (startsWithQuestionWord) {
-    return titleCase(canonical) + '?';
+    return titleCase(phrase) + '?';
   }
-  return `What should I know about ${canonical}?`;
+  return `What should I know about ${phrase}?`;
 }
 
 /**

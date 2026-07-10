@@ -1,6 +1,13 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { LlmAdapter, LlmScoreReview } from './adapter.js';
-import type { GroupScores, InputUrlRow, PageContentRow, QueryGroup, ToolConfig } from '../types.js';
+import type {
+  GroupScores,
+  InputUrlRow,
+  PageContentRow,
+  QueryGroup,
+  SuggestedEditRow,
+  ToolConfig,
+} from '../types.js';
 
 const SCORE_SCHEMA = {
   type: 'object',
@@ -94,6 +101,63 @@ export class AnthropicAdapter implements LlmAdapter {
       return JSON.parse(text.text) as LlmScoreReview;
     } catch (err) {
       console.warn(`LLM scoring failed for "${group.canonicalQuery}": ${(err as Error).message}`);
+      return null;
+    }
+  }
+
+  async draftEdit(input: {
+    edit: SuggestedEditRow;
+    page?: PageContentRow;
+    config: ToolConfig;
+  }): Promise<string | null> {
+    const { edit, page, config } = input;
+    if (!page || page.httpStatus !== 200) return null; // never draft copy for a page we haven't seen
+    try {
+      const response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: 1500,
+        thinking: { type: 'adaptive' },
+        system:
+          `You are a senior SEO copywriter drafting on-page copy for ${config.clientName || 'a client'}. ` +
+          `Ground every claim strictly in the page content provided — never invent services, numbers, accreditations or claims. ` +
+          `Weave keywords in naturally; no keyword stuffing, no exact-match contortions. ` +
+          `Match the page's existing tone. Output ONLY the final copy in the same structural format as the template ` +
+          `(keep the "H2:", "H3:", "Suggested answer:" / "Draft:" labels), with no preamble or commentary. ` +
+          `FAQ answers: 2-3 direct sentences each, ending with a natural next step where appropriate.`,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              config.clientContext ? `Client context: ${config.clientContext}` : '',
+              config.terminologyToAvoid.length
+                ? `Terminology to avoid: ${config.terminologyToAvoid.join(', ')}`
+                : '',
+              '',
+              `Page: ${edit.url}`,
+              `Title: ${page.titleTag}`,
+              `H1: ${page.h1}`,
+              `Existing H2s: ${page.h2s.join(' | ')}`,
+              `Page content: ${page.bodyText.slice(0, 6000)}`,
+              '',
+              `Edit type: ${edit.editType}`,
+              `Placement: ${edit.whereOnPage}`,
+              `Keywords this edit must cover naturally: ${edit.keywordsTargeted}`,
+              '',
+              `Template to rewrite into publishable draft copy:`,
+              edit.suggestedCopy,
+            ]
+              .filter((line) => line !== '')
+              .join('\n'),
+          },
+        ],
+      });
+
+      if (response.stop_reason === 'refusal') return null;
+      const text = response.content.find((b) => b.type === 'text');
+      if (!text || text.type !== 'text' || !text.text.trim()) return null;
+      return text.text.trim();
+    } catch (err) {
+      console.warn(`LLM draft failed for ${edit.url} (${edit.editType}): ${(err as Error).message}`);
       return null;
     }
   }

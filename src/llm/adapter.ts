@@ -3,6 +3,7 @@ import type {
   InputUrlRow,
   PageContentRow,
   QueryGroup,
+  SuggestedEditRow,
   ToolConfig,
 } from '../types.js';
 
@@ -29,6 +30,16 @@ export interface LlmAdapter {
     inputMeta?: InputUrlRow;
     config: ToolConfig;
   }): Promise<LlmScoreReview | null>;
+  /**
+   * Optionally rewrite a Suggested Edit's template copy into publishable
+   * draft copy, grounded strictly in the fetched page content (no invented
+   * claims). Return null to keep the heuristic template.
+   */
+  draftEdit?(input: {
+    edit: SuggestedEditRow;
+    page?: PageContentRow;
+    config: ToolConfig;
+  }): Promise<string | null>;
 }
 
 export class NoopLlmAdapter implements LlmAdapter {

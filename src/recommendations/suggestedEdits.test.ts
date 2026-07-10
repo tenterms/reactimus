@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildSuggestedEdits } from './suggestedEdits.js';
+import { applyLlmDrafts, buildSuggestedEdits } from './suggestedEdits.js';
+import { suggestFaqQuestion } from './generator.js';
 import { DEFAULT_CONFIG } from '../config/defaults.js';
 import type { AnalysedGroup, PageContentRow, RecommendationCategory } from '../types.js';
+import type { LlmAdapter } from '../llm/adapter.js';
 
 const URL = 'https://example.co.uk/it-support-sheffield/';
 
@@ -111,6 +113,39 @@ describe('buildSuggestedEdits', () => {
     expect(edits[0]!.keywordsTargeted).toContain('it support packages sheffield');
     expect(edits[0]!.keywordsTargeted).toContain('it support packages');
     expect(edits[0]!.why).toContain('do not create separate headings');
+  });
+
+  it('generates natural FAQ questions per keyword shape', () => {
+    expect(suggestFaqQuestion('how much does it support cost')).toBe('How Much Does it Support Cost?');
+    expect(suggestFaqQuestion('penetration testing cost')).toBe('How much does penetration testing cost?');
+    expect(suggestFaqQuestion('best cyber security companies uk')).toBe(
+      'How do I choose the right cyber security companies uk?',
+    );
+    expect(suggestFaqQuestion('vciso services')).toBe('Do you offer vciso services?');
+    expect(suggestFaqQuestion('who offers trusted services for trading firms??')).toBe(
+      'Who Offers Trusted Services For Trading Firms?',
+    );
+  });
+
+  it('applies LLM drafts when the adapter provides them, keeping templates otherwise', async () => {
+    const edits = buildSuggestedEdits(
+      [analysed('it support packages sheffield', 'add_to_h2'), analysed('response time detail', 'add_to_body')],
+      pages,
+      config,
+    );
+    const adapter: LlmAdapter = {
+      name: 'mock',
+      reviewScores: async () => null,
+      draftEdit: async ({ edit }) =>
+        edit.editType === 'New H2 section' ? 'H2: Polished Heading\nPolished opening paragraph.' : null,
+    };
+    const drafted = await applyLlmDrafts(edits, pages, config, adapter);
+    expect(drafted).toBe(1);
+    const h2 = edits.find((e) => e.editType === 'New H2 section')!;
+    expect(h2.suggestedCopy).toBe('H2: Polished Heading\nPolished opening paragraph.');
+    expect(h2.why).toContain('review before publishing');
+    const body = edits.find((e) => e.editType === 'Body copy')!;
+    expect(body.suggestedCopy).toContain('Draft:'); // template kept
   });
 
   it('ignores non-on-page categories', () => {

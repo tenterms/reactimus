@@ -37,7 +37,7 @@ import { scoreGroup } from '../scoring/heuristics.js';
 import { analyseGroup } from '../classify/decisionRules.js';
 import { buildNewPageIdea, buildRecommendation } from '../recommendations/generator.js';
 import { consolidateNewPageGroups } from '../recommendations/consolidate.js';
-import { buildSuggestedEdits } from '../recommendations/suggestedEdits.js';
+import { applyLlmDrafts, buildSuggestedEdits } from '../recommendations/suggestedEdits.js';
 import { compileRules } from '../rules/engine.js';
 import { processFeedback } from '../rules/feedback.js';
 import { createLlmAdapter } from '../llm/adapter.js';
@@ -320,7 +320,10 @@ export async function runAnalyse(deps: PipelineDeps, options: { pullOnly?: boole
       .split('\n')[0]!
       .trim()
       .toLowerCase()}`;
-  const editRows = buildSuggestedEdits(analysed, pages, config).map(suggestedEditToRow);
+  const suggestedEdits = buildSuggestedEdits(analysed, pages, config);
+  const drafted = await applyLlmDrafts(suggestedEdits, pages, config, llm);
+  if (drafted > 0) log(`LLM drafted publishable copy for ${drafted}/${suggestedEdits.length} edit(s).`);
+  const editRows = suggestedEdits.map(suggestedEditToRow);
   const existingEdits = await store.readTab(TAB.suggestedEdits);
   const keptOtherEditUrls = existingEdits.filter(
     (r) => r['URL'] && !pulledUrls.has(normUrl(r['URL']!)),

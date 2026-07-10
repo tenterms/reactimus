@@ -7,6 +7,36 @@ import type {
 import { contentTokens } from '../text/normalise.js';
 import { priorityFromDemand, suggestFaqQuestion, titleCase } from './generator.js';
 import { themeTokens } from './consolidate.js';
+import type { LlmAdapter } from '../llm/adapter.js';
+
+const normUrl = (u: string) => u.trim().toLowerCase().replace(/\/+$/, '');
+
+/**
+ * When the configured LLM adapter supports copy drafting, replace each
+ * edit's template copy with publishable draft copy grounded in the fetched
+ * page content. Heuristic templates are kept whenever the adapter declines
+ * (no key, fetch-failed page, refusal, error) — the tab is never emptier
+ * because the LLM was unavailable.
+ */
+export async function applyLlmDrafts(
+  edits: SuggestedEditRow[],
+  pages: Map<string, PageContentRow>,
+  config: ToolConfig,
+  adapter: LlmAdapter,
+): Promise<number> {
+  if (!adapter.draftEdit) return 0;
+  let drafted = 0;
+  for (const edit of edits) {
+    const draft = await adapter.draftEdit({ edit, page: pages.get(normUrl(edit.url)), config });
+    if (draft) {
+      edit.suggestedCopy = draft;
+      edit.why +=
+        ' (Draft copy written by the LLM from the fetched page content — review before publishing.)';
+      drafted++;
+    }
+  }
+  return drafted;
+}
 
 /**
  * Cluster same-page groups that share a theme (or promote the same body
@@ -54,7 +84,6 @@ export function buildSuggestedEdits(
   pages: Map<string, PageContentRow>,
   config: ToolConfig,
 ): SuggestedEditRow[] {
-  const normUrl = (u: string) => u.trim().toLowerCase().replace(/\/+$/, '');
   const client = config.clientName || 'We';
   const edits: SuggestedEditRow[] = [];
 

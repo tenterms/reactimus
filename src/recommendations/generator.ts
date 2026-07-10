@@ -5,7 +5,7 @@ import type {
   ToolConfig,
 } from '../types.js';
 import { contentTokens } from '../text/normalise.js';
-import { INFORMATIONAL_MARKERS } from '../config/defaults.js';
+import { COMMERCIAL_MARKERS, INFORMATIONAL_MARKERS } from '../config/defaults.js';
 import type { NewPageCluster } from './consolidate.js';
 
 export function titleCase(phrase: string): string {
@@ -116,14 +116,50 @@ export function buildRecommendation(g: AnalysedGroup): RecommendationRow {
 }
 
 export function suggestFaqQuestion(canonical: string): string {
-  const phrase = canonical.replace(/\?+\s*$/, '').trim();
+  // Tidy: drop trailing punctuation and keep only the first sentence of
+  // multi-sentence conversational queries ("... for hospitality. any ideas").
+  let phrase = canonical.replace(/[?.!]+\s*$/, '').trim();
+  phrase = phrase.split(/[.!]\s+/)[0]!.trim();
+
+  // First-person conversational lead-ins become a "can you help" question.
+  const leadIn = phrase.match(/^(i need|i am looking for|i'm im looking for|im looking for|we need|we are looking for|find me|looking for)\s+(.*)$/i);
+  if (leadIn) {
+    return `Can you help with ${leadIn[2]!.replace(/^(a|an|the)\s+/i, '')}?`;
+  }
+  // "list companies providing X" style requests become a who-provides question.
+  const listStyle = phrase.match(/^list\s+(?:companies|providers|firms)?\s*(?:providing|offering|that provide|that offer)?\s*(.+)$/i);
+  if (listStyle) {
+    return `Who provides ${listStyle[1]!}?`;
+  }
+
   const tokens = phrase.toLowerCase().split(/\s+/);
+
+  // Already a question — tidy the casing and punctuation.
   const startsWithQuestionWord =
     tokens.length > 0 &&
     (INFORMATIONAL_MARKERS.has(tokens[0]!) || ['can', 'do', 'does', 'is', 'are', 'should'].includes(tokens[0]!));
   if (startsWithQuestionWord) {
     return titleCase(phrase) + '?';
   }
+
+  // Cost/price keywords become the question people actually ask.
+  const costTokens = ['cost', 'costs', 'price', 'prices', 'pricing'];
+  if (tokens.some((t) => costTokens.includes(t))) {
+    const subject = tokens.filter((t) => !costTokens.includes(t) && t !== 'of').join(' ');
+    return `How much does ${subject || phrase} cost?`;
+  }
+
+  // Provider/selection keywords ("best X companies", "X providers") become
+  // a choosing question; short commercial phrases become an offer question;
+  // long ones read better as a help question.
+  if (tokens.some((t) => ['best', 'top', 'compare', 'reviews'].includes(t))) {
+    const subject = tokens.filter((t) => !['best', 'top', 'compare', 'reviews'].includes(t)).join(' ');
+    return `How do I choose the right ${subject || phrase}?`;
+  }
+  if (tokens.some((t) => COMMERCIAL_MARKERS.has(t))) {
+    return tokens.length <= 6 ? `Do you offer ${phrase}?` : `Can you help with ${phrase}?`;
+  }
+
   return `What should I know about ${phrase}?`;
 }
 

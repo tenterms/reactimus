@@ -22,7 +22,8 @@
     "cheerio": "^1.0.0",
     "dotenv": "^16.4.5",
     "fast-xml-parser": "^4.5.0",
-    "googleapis": "^144.0.0"
+    "googleapis": "^144.0.0",
+    "undici": "^8.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -151,6 +151,25 @@ describe('classifyGroup default decision rules', () => {
     expect(d.rationale).toContain('verify');
   });
 
+  it('routes long conversational queries to FAQ, never new pages', () => {
+    const d = classifyGroup(
+      group('can you recommend a compliance service with consultants skilled in cybersecurity compliance for manufacturing?'),
+      scores({ topicalRelevance: 3, intentMatch: 4, commerciality: 4, distinctTopic: 4, cannibalisationRisk: 1 }),
+      NOT_COVERED,
+    );
+    expect(d.category).toBe('add_to_faq');
+  });
+
+  it('rejects conversational queries with weak fit as demand signals only', () => {
+    const d = classifyGroup(
+      group('find me the easiest security consulting services to integrate into a fintech development cycle'),
+      scores({ topicalRelevance: 2, intentMatch: 3, commerciality: 4, distinctTopic: 4, cannibalisationRisk: 1 }),
+      NOT_COVERED,
+    );
+    expect(d.category).toBe('reject');
+    expect(d.rationale).toContain('demand signal');
+  });
+
   it('rejects page-topic-plus-unknown-qualifier variants with guidance', () => {
     const d = classifyGroup(
       group('cyber security consultancy oxted'),

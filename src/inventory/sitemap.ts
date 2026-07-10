@@ -1,4 +1,5 @@
 import { XMLParser } from 'fast-xml-parser';
+import { proxyAwareFetch } from '../content/httpClient.js';
 
 const USER_AGENT = 'Mozilla/5.0 (compatible; GSC-Content-Recommendations/0.1)';
 
@@ -11,7 +12,7 @@ export async function fetchSitemapUrls(sitemapUrl: string, maxUrls = 2000): Prom
   const urls: string[] = [];
 
   const load = async (target: string): Promise<unknown> => {
-    const res = await fetch(target, {
+    const res = await proxyAwareFetch(target, {
       headers: { 'User-Agent': USER_AGENT },
       signal: AbortSignal.timeout(20000),
     });

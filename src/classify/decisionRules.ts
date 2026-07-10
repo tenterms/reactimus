@@ -71,6 +71,12 @@ export function classifyGroup(
   const isQuestionLed = tokens.some((tok) => INFORMATIONAL_MARKERS.has(tok));
   const dataConfidence = confidenceFromDemand(group.totalImpressions, group.totalClicks);
 
+  // Long conversational queries ("can you recommend a compliance service
+  // with consultants skilled in...") are AI-assistant/voice-style searches.
+  // They are demand signals for existing pages — never page titles, headings
+  // or slugs.
+  const isConversational = tokens.length >= 7 || /\?\s*$/.test(group.canonicalQuery);
+
   // A distinct, commercial, non-cannibalising query group may deserve a new
   // page even when it is only weakly relevant to the *current* page — as long
   // as it relates to the wider site (relevance 2, not 0-1).
@@ -127,6 +133,27 @@ export function classifyGroup(
       category: 'reject',
       rationale: `Already covered: phrase appears in the page's ${mention.location} ("${mention.evidence}"). No change needed.`,
       confidence: 0.9,
+    };
+  }
+
+  // Conversational queries: answer them, don't build pages or headings
+  // around them.
+  if (isConversational) {
+    if (scores.topicalRelevance >= 3 && scores.intentMatch >= 3) {
+      return {
+        category: 'add_to_faq',
+        rationale:
+          `Long conversational query (likely AI-assistant/voice search) relevant to this page — ` +
+          `answer it in FAQ copy rather than building a page or heading around the phrase.`,
+        confidence: Math.min(dataConfidence, 0.6),
+      };
+    }
+    return {
+      category: 'reject',
+      rationale:
+        `Long conversational query with weak fit to this page (relevance ${scores.topicalRelevance}, ` +
+        `intent ${scores.intentMatch}). Treat as a demand signal only.`,
+      confidence: 0.6,
     };
   }
 

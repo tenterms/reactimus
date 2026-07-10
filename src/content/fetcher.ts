@@ -1,5 +1,6 @@
 import * as cheerio from 'cheerio';
 import type { PageContentRow } from '../types.js';
+import { proxyAwareFetch } from './httpClient.js';
 
 const USER_AGENT =
   'Mozilla/5.0 (compatible; GSC-Content-Recommendations/0.1; +https://github.com/tenterms/reactimus)';
@@ -8,7 +9,7 @@ const USER_AGENT =
 export async function fetchPageContent(url: string, timeoutMs = 20000): Promise<PageContentRow> {
   const lastFetched = new Date().toISOString();
   try {
-    const res = await fetch(url, {
+    const res = await proxyAwareFetch(url, {
       headers: { 'User-Agent': USER_AGENT, Accept: 'text/html' },
       redirect: 'follow',
       signal: AbortSignal.timeout(timeoutMs),

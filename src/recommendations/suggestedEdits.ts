@@ -88,10 +88,9 @@ export function buildSuggestedEdits(
   const edits: SuggestedEditRow[] = [];
 
   const byUrl = new Map<string, AnalysedGroup[]>();
+  const ON_PAGE = new Set(['add_to_h2', 'add_to_body', 'add_to_faq', 'link_to_existing_page']);
   for (const g of groups) {
-    if (g.category !== 'add_to_h2' && g.category !== 'add_to_body' && g.category !== 'add_to_faq') {
-      continue;
-    }
+    if (!ON_PAGE.has(g.category)) continue;
     const list = byUrl.get(g.url) ?? [];
     list.push(g);
     byUrl.set(g.url, list);
@@ -189,6 +188,31 @@ export function buildSuggestedEdits(
         why: g.rationale + alsoCovers(cluster),
         priority: priorityFromDemand(demandProxyOf(cluster)),
         confidence: Math.max(...cluster.map((m) => m.confidence)),
+        status: '',
+        reviewerNotes: '',
+      });
+    }
+
+    // --- Internal link edits: point the query at the page that owns it ---
+    for (const g of urlGroups.filter((x) => x.category === 'link_to_existing_page')) {
+      const target = g.scores.betterExistingUrl || '(better-matching page)';
+      const section = bestSection(g);
+      edits.push({
+        url,
+        editType: 'Internal link',
+        whereOnPage: section
+          ? `Within the "${section}" section (or wherever the topic is mentioned)`
+          : 'Within the main body copy, where the topic is mentioned',
+        suggestedCopy:
+          `Link to: ${target}\n` +
+          `Anchor text: "${g.canonicalQuery}" (or a natural variant)\n` +
+          `Draft sentence: "For ${g.canonicalQuery}, see our dedicated page — [link the phrase to ${target}]."`,
+        keywordsTargeted: g.variants.map((v) => v.query).join('; '),
+        why:
+          `${target} should own this query; an internal link passes the relevance signal there and reduces the ` +
+          `risk of the wrong page ranking. ${g.rationale}`,
+        priority: priorityFromDemand(g),
+        confidence: g.confidence,
         status: '',
         reviewerNotes: '',
       });

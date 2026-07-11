@@ -110,7 +110,7 @@ export function processFeedback(rows: SheetRow[], ctx: FeedbackContext): Process
       }
     } else if (betterUrl) {
       ruleType = 'assign_to_existing_page';
-      correctedDecision = 'assign_to_existing_page';
+      correctedDecision = 'link_to_existing_page';
     } else if (rejected) {
       ruleType = 'mark_irrelevant';
       correctedDecision = 'reject';

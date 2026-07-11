@@ -6,3 +6,4 @@ out/
 *.log
 credentials/
 service-account*.json
+clients.json

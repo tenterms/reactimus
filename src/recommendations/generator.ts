@@ -101,10 +101,12 @@ export function buildRecommendation(g: AnalysedGroup): RecommendationRow {
       base.suggestedPlacement = 'New supporting content (see New Page Ideas tab)';
       base.suggestedContentTweak = `Do not add to this page. ${g.rationale}`;
       break;
-    case 'assign_to_existing_page':
+    case 'link_to_existing_page':
       base.suggestedPlacement = g.scores.betterExistingUrl || 'Another existing page';
       base.suggestedContentTweak =
-        `Target this query group on ${g.scores.betterExistingUrl || 'the better-matching page'} instead. ${g.rationale}`;
+        `Add an internal link from this page to ${g.scores.betterExistingUrl || 'the better-matching page'} ` +
+        `using anchor text like "${g.canonicalQuery}" — that page should own this query, and the link reduces ` +
+        `the risk of the wrong page ranking. ${g.rationale}`;
       break;
     case 'reject':
       base.suggestedPlacement = 'No action';

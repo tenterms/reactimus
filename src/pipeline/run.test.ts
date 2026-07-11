@@ -28,7 +28,7 @@ describe('end-to-end pipeline (offline)', () => {
 
     const recs = await store.readTab(TAB.recommendations);
     const byGroup = new Map(recs.map((r) => [r['Canonical query group'], r]));
-    expect(byGroup.get('it services sheffield')?.['Recommendation type']).toBe('assign_to_existing_page');
+    expect(byGroup.get('it services sheffield')?.['Recommendation type']).toBe('link_to_existing_page');
     expect(byGroup.get('managed it support sheffield')?.['Recommendation type']).toBe('add_to_h2');
     // No-action rows live in the Rejected tab, keeping Recommendations clean.
     expect(byGroup.has('it support jobs sheffield')).toBe(false);
@@ -99,8 +99,8 @@ describe('end-to-end pipeline (offline)', () => {
   it('only pulls URLs ticked "Include in next run" when the selector is used', async () => {
     const store = new MemoryStore({
       ...DEMO_SEED,
-      [TAB.inputUrls]: [
-        { URL: URL_SUPPORT, 'Target intent': 'commercial', 'Include in next run': 'yes' },
+      [TAB.pages]: [
+        { URL: URL_SUPPORT, 'Target intent': 'commercial', 'Include in next run': 'TRUE' },
         { URL: 'https://acme-it.example.co.uk/it-services-sheffield/', 'Target intent': 'commercial' },
       ],
     });
@@ -109,7 +109,7 @@ describe('end-to-end pipeline (offline)', () => {
 
     expect(gsc.calls).toEqual([URL_SUPPORT]); // unticked URL not pulled
     // Unselected rows are kept in the tab, untouched.
-    const inputs = await store.readTab(TAB.inputUrls);
+    const inputs = await store.readTab(TAB.pages);
     expect(inputs).toHaveLength(2);
     const unticked = inputs.find((r) => r['URL']!.includes('it-services'));
     expect(unticked?.['Last analysed']).toBe('');
@@ -132,7 +132,7 @@ describe('end-to-end pipeline (offline)', () => {
     expect(gsc2.calls).toEqual([]); // cached pull reused (default 7-day window)
     // Analysis still ran from the cached rows.
     expect((await store.readTab(TAB.queryGroups)).length).toBeGreaterThan(0);
-    const inputs = await store.readTab(TAB.inputUrls);
+    const inputs = await store.readTab(TAB.pages);
     expect(inputs[0]?.['Status']).toContain('reused GSC pull');
   });
 
@@ -213,9 +213,10 @@ describe('end-to-end pipeline (offline)', () => {
     });
     await runAnalyse({ store, gsc: new MockGscClient(), fetchPage: failingFetch, log: silent });
 
-    // Nothing polluted the inventory with empty titles.
-    const inventory = await store.readTab(TAB.siteInventory);
-    expect(inventory.every((r) => r['Title tag'] !== '' || r['Notes'] !== 'auto-added from analysed pages')).toBe(true);
+    // Failed fetches must not blank out Pages-tab titles.
+    const pagesTab = await store.readTab(TAB.pages);
+    const services = pagesTab.find((r) => r['URL']!.includes('it-services'));
+    expect(services?.['Title tag']).not.toBe('');
 
     // Every surviving recommendation is capped and flagged.
     const recs = await store.readTab(TAB.recommendations);
@@ -225,15 +226,15 @@ describe('end-to-end pipeline (offline)', () => {
       expect(r['Existing page evidence']).toContain('page not fetched');
     }
 
-    // Input URLs record the fetch failure.
-    const inputs = await store.readTab(TAB.inputUrls);
+    // The Pages tab records the fetch failure.
+    const inputs = await store.readTab(TAB.pages);
     expect(inputs[0]?.['Status']).toContain('403');
   });
 
-  it('URLs in Input URLs get status and last-analysed stamps', async () => {
+  it('analysed URLs get status and last-analysed stamps', async () => {
     const store = new MemoryStore(DEMO_SEED);
     await runAnalyse(deps(store));
-    const inputs = await store.readTab(TAB.inputUrls);
+    const inputs = await store.readTab(TAB.pages);
     const row = inputs.find((r) => r['URL'] === URL_SUPPORT);
     expect(row?.['Status']).toBe('ok');
     expect(row?.['Last analysed']).toMatch(/^\d{4}-\d{2}-\d{2}/);

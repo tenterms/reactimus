@@ -2,13 +2,12 @@ import type {
   AnalysedGroup,
   FeedbackRule,
   GscRawRow,
-  InputUrlRow,
   NewPageIdeaRow,
   PageContentRow,
   PageIntent,
   RecommendationRow,
   ReviewLogRow,
-  SiteInventoryRow,
+  PageRow,
 } from '../types.js';
 import type { SheetRow } from './sheets.js';
 
@@ -17,33 +16,43 @@ const num = (v: string | undefined): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
-// --- Input URLs ---
+// --- Pages (unified inventory + selector tab) ---
 
-export function inputUrlFromRow(row: SheetRow): InputUrlRow {
+export const isTicked = (v: string): boolean =>
+  ['yes', 'y', 'true', '1', 'x', '✓', '✔'].includes(v.trim().toLowerCase());
+
+export function pageFromRow(row: SheetRow): PageRow {
   return {
     url: (row['URL'] ?? '').trim(),
+    include: row['Include in next run'] ?? '',
     pageType: row['Page type'] ?? '',
     primaryTopic: row['Primary topic'] ?? '',
     targetIntent: ((row['Target intent'] ?? '').toLowerCase() as PageIntent) || '',
+    titleTag: row['Title tag'] ?? '',
+    h1: row['H1'] ?? '',
+    canonicalUrl: row['Canonical URL'] ?? '',
     businessPriority: row['Business priority'] ?? '',
     notes: row['Notes'] ?? '',
     lastAnalysed: row['Last analysed'] ?? '',
     status: row['Status'] ?? '',
-    include: row['Include in next run'] ?? '',
   };
 }
 
-export function inputUrlToRow(input: InputUrlRow): SheetRow {
+export function pageToRow(page: PageRow): SheetRow {
   return {
-    URL: input.url,
-    'Page type': input.pageType,
-    'Primary topic': input.primaryTopic,
-    'Target intent': input.targetIntent,
-    'Business priority': input.businessPriority,
-    Notes: input.notes,
-    'Last analysed': input.lastAnalysed,
-    Status: input.status,
-    'Include in next run': input.include,
+    URL: page.url,
+    // Normalised so the checkbox column always renders as a checkbox.
+    'Include in next run': isTicked(page.include) ? 'TRUE' : 'FALSE',
+    'Page type': page.pageType,
+    'Primary topic': page.primaryTopic,
+    'Target intent': page.targetIntent,
+    'Title tag': page.titleTag,
+    H1: page.h1,
+    'Canonical URL': page.canonicalUrl,
+    'Business priority': page.businessPriority,
+    Notes: page.notes,
+    'Last analysed': page.lastAnalysed,
+    Status: page.status,
   };
 }
 
@@ -114,31 +123,15 @@ export function pageContentFromRow(row: SheetRow): PageContentRow {
   };
 }
 
-// --- Site URL Inventory ---
-
-export function inventoryFromRow(row: SheetRow): SiteInventoryRow {
+/**
+ * Read a row from the legacy "Input URLs" / "Site URL Inventory" tabs into a
+ * PageRow (used once, to migrate old sheets into the unified Pages tab).
+ * Legacy Input URLs rows were the analysis set, so they arrive ticked.
+ */
+export function legacyPageFromRow(row: SheetRow, wasInputUrl: boolean): PageRow {
   return {
-    url: (row['URL'] ?? '').trim(),
-    titleTag: row['Title tag'] ?? '',
-    h1: row['H1'] ?? '',
-    pageType: row['Page type'] ?? '',
-    primaryTopic: row['Primary topic'] ?? '',
-    targetIntent: ((row['Target intent'] ?? '').toLowerCase() as PageIntent) || '',
-    canonicalUrl: row['Canonical URL'] ?? '',
-    notes: row['Notes'] ?? '',
-  };
-}
-
-export function inventoryToRow(inv: SiteInventoryRow): SheetRow {
-  return {
-    URL: inv.url,
-    'Title tag': inv.titleTag,
-    H1: inv.h1,
-    'Page type': inv.pageType,
-    'Primary topic': inv.primaryTopic,
-    'Target intent': inv.targetIntent,
-    'Canonical URL': inv.canonicalUrl,
-    Notes: inv.notes,
+    ...pageFromRow(row),
+    include: wasInputUrl ? row['Include in next run'] || 'TRUE' : row['Include in next run'] ?? '',
   };
 }
 

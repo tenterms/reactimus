@@ -51,7 +51,7 @@ export function classifyGroup(
     if (assignment) {
       scores.betterExistingUrl = assignment.betterUrl;
       return {
-        category: 'assign_to_existing_page',
+        category: 'link_to_existing_page',
         rationale: `Assigned to ${assignment.betterUrl} by rule ${assignment.ruleId}: ${assignment.reason || 'no reason recorded'}.`,
         confidence: 0.95,
       };
@@ -118,7 +118,7 @@ export function classifyGroup(
   // --- 3. Another page owns this intent ---
   if (scores.cannibalisationRisk >= t.assignMinCannibalisation && scores.betterExistingUrl) {
     return {
-      category: 'assign_to_existing_page',
+      category: 'link_to_existing_page',
       rationale: `Cannibalisation risk ${scores.cannibalisationRisk}/5: ${scores.betterExistingUrl} is a stronger match for this query group.`,
       confidence: dataConfidence,
     };

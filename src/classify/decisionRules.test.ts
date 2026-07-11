@@ -128,7 +128,7 @@ describe('classifyGroup default decision rules', () => {
       }),
       NOT_COVERED,
     );
-    expect(d.category).toBe('assign_to_existing_page');
+    expect(d.category).toBe('link_to_existing_page');
   });
 
   it('rejects low relevance or wrong intent', () => {
@@ -291,7 +291,7 @@ describe('classifyGroup with feedback rules', () => {
       NOT_COVERED,
       compiled,
     );
-    expect(d.category).toBe('assign_to_existing_page');
+    expect(d.category).toBe('link_to_existing_page');
   });
 
   it('change_recommendation rule overrides the category', () => {

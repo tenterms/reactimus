@@ -8,6 +8,8 @@ import type {
 import type { SheetRow } from '../google/sheets.js';
 import { mergePreservingReviewColumns } from '../google/sheets.js';
 import {
+  LEGACY_INPUT_URLS,
+  LEGACY_SITE_INVENTORY,
   NEW_PAGE_REVIEW_COLUMNS,
   RECOMMENDATION_REVIEW_COLUMNS,
   SUGGESTED_EDIT_REVIEW_COLUMNS,
@@ -19,13 +21,13 @@ import {
   feedbackRuleToRow,
   gscRawFromRow,
   gscRawToRow,
-  inputUrlFromRow,
-  inputUrlToRow,
-  inventoryFromRow,
-  inventoryToRow,
+  isTicked,
+  legacyPageFromRow,
   newPageIdeaToRow,
   pageContentFromRow,
   pageContentToRow,
+  pageFromRow,
+  pageToRow,
   recommendationToRow,
   reviewLogToRow,
   suggestedEditToRow,
@@ -45,6 +47,7 @@ import { createLlmAdapter } from '../llm/adapter.js';
 /** Storage interface — satisfied by SheetsClient and the in-memory mock. */
 export interface DataStore {
   ensureTabs(): Promise<void>;
+  hideTab?(tab: string): Promise<void>;
   readTab(tab: string): Promise<SheetRow[]>;
   writeTab(tab: string, rows: SheetRow[]): Promise<void>;
   appendRows(tab: string, rows: SheetRow[]): Promise<void>;
@@ -88,22 +91,32 @@ export async function runAnalyse(deps: PipelineDeps, options: { pullOnly?: boole
     `Client: ${config.clientName || '(unnamed)'} | property: ${config.gscProperty || '(none)'} | window: last ${config.monthsBack} months`,
   );
 
-  const allInputs = (await store.readTab(TAB.inputUrls)).map(inputUrlFromRow).filter((i) => i.url);
-  if (allInputs.length === 0) {
-    log('No URLs found in the Input URLs tab — nothing to do.');
+  // --- Pages tab (unified inventory + selector); migrate legacy tabs once ---
+  let allPages = (await store.readTab(TAB.pages)).map(pageFromRow).filter((p) => p.url);
+  if (allPages.length === 0) {
+    const legacyInputs = (await store.readTab(LEGACY_INPUT_URLS)).map((r) => legacyPageFromRow(r, true));
+    const legacyInventory = (await store.readTab(LEGACY_SITE_INVENTORY)).map((r) => legacyPageFromRow(r, false));
+    const seen = new Set<string>();
+    for (const page of [...legacyInputs, ...legacyInventory]) {
+      if (!page.url || seen.has(normUrl(page.url))) continue;
+      seen.add(normUrl(page.url));
+      allPages.push(page);
+    }
+    if (allPages.length > 0) {
+      await store.writeTab(TAB.pages, allPages.map(pageToRow));
+      await store.hideTab?.(LEGACY_INPUT_URLS);
+      await store.hideTab?.(LEGACY_SITE_INVENTORY);
+      log(`Migrated ${allPages.length} URL(s) from the legacy Input URLs / Site URL Inventory tabs into "Pages".`);
+    }
+  }
+  if (allPages.length === 0) {
+    log('No URLs found in the Pages tab — add pages and tick "Include in next run" on the ones to analyse.');
     return;
   }
-  // "Include in next run" selector: when any row is ticked, only ticked rows
-  // run; when none are, everything runs. Unselected URLs keep all their
-  // existing data untouched.
-  const isTicked = (v: string) => ['yes', 'y', 'true', '1', 'x', '✓', '✔'].includes(v.trim().toLowerCase());
-  const anyTicked = allInputs.some((i) => isTicked(i.include));
-  const inputs = anyTicked ? allInputs.filter((i) => isTicked(i.include)) : allInputs;
-  if (anyTicked) {
-    log(`Selector active: ${inputs.length} of ${allInputs.length} URL(s) ticked "Include in next run".`);
-  }
+  const inputs = allPages.filter((p) => isTicked(p.include));
+  log(`Pages: ${allPages.length} known URL(s); ${inputs.length} ticked "Include in next run".`);
   if (inputs.length === 0) {
-    log('No URLs selected — tick "Include in next run" on the rows to analyse.');
+    log('Nothing selected — tick the "Include in next run" checkbox on the pages to analyse.');
     return;
   }
 
@@ -172,35 +185,20 @@ export async function runAnalyse(deps: PipelineDeps, options: { pullOnly?: boole
     [...existingContent, ...pages.values()].map(pageContentToRow),
   );
 
-  // --- Site inventory: read, seed/refresh entries from successfully
-  // fetched pages (failed fetches must not pollute the inventory) ---
-  const inventory = (await store.readTab(TAB.siteInventory))
-    .map(inventoryFromRow)
-    .filter((i) => i.url);
-  const inventoryByUrl = new Map(inventory.map((i) => [normUrl(i.url), i]));
+  // --- Refresh title/H1 on the Pages tab from successfully fetched pages
+  // (failed fetches must not pollute the site inventory) ---
   const inputByUrl = new Map(inputs.map((i) => [normUrl(i.url), i]));
+  const pagesByUrl = new Map(allPages.map((p) => [normUrl(p.url), p]));
   for (const page of pages.values()) {
     if (page.httpStatus !== 200) continue;
-    const meta = inputByUrl.get(normUrl(page.url));
-    const existing = inventoryByUrl.get(normUrl(page.url));
-    if (!existing) {
-      inventory.push({
-        url: page.url,
-        titleTag: page.titleTag,
-        h1: page.h1,
-        pageType: meta?.pageType ?? '',
-        primaryTopic: meta?.primaryTopic ?? '',
-        targetIntent: meta?.targetIntent ?? '',
-        canonicalUrl: page.canonicalUrl,
-        notes: 'auto-added from analysed pages',
-      });
-    } else if (!existing.titleTag && !existing.h1) {
-      existing.titleTag = page.titleTag;
-      existing.h1 = page.h1;
-      existing.canonicalUrl = existing.canonicalUrl || page.canonicalUrl;
+    const row = pagesByUrl.get(normUrl(page.url));
+    if (row) {
+      row.titleTag = page.titleTag;
+      row.h1 = page.h1;
+      row.canonicalUrl = row.canonicalUrl || page.canonicalUrl;
     }
   }
-  await store.writeTab(TAB.siteInventory, inventory.map(inventoryToRow));
+  const inventory: SiteInventoryRow[] = allPages;
 
   const failedPages = [...pages.values()].filter((p) => p.httpStatus !== 200);
   if (failedPages.length > 0) {
@@ -217,11 +215,11 @@ export async function runAnalyse(deps: PipelineDeps, options: { pullOnly?: boole
     // Write every row back (selection must not drop unselected URLs); stamp
     // only the ones analysed in this run.
     await store.writeTab(
-      TAB.inputUrls,
-      allInputs.map((i) =>
-        pulledUrls.has(normUrl(i.url))
-          ? inputUrlToRow({ ...i, lastAnalysed: stamp, status: statuses.get(i.url) ?? 'ok' })
-          : inputUrlToRow(i),
+      TAB.pages,
+      allPages.map((p) =>
+        pulledUrls.has(normUrl(p.url))
+          ? pageToRow({ ...p, lastAnalysed: stamp, status: statuses.get(p.url) ?? 'ok' })
+          : pageToRow(p),
       ),
     );
   };
@@ -302,15 +300,6 @@ export async function runAnalyse(deps: PipelineDeps, options: { pullOnly?: boole
     (g) => g.category === 'new_commercial_page' || g.category === 'new_supporting_content',
   );
   const clusters = consolidateNewPageGroups(newPageGroups);
-  const clusterBySeedlessMember = new Map<string, string>(); // member key -> seed page title
-  for (const cluster of clusters) {
-    for (const member of cluster.members) {
-      clusterBySeedlessMember.set(
-        `${normUrl(member.url)}##${member.canonicalQuery.toLowerCase()}`,
-        cluster.seed.canonicalQuery,
-      );
-    }
-  }
 
   // --- Archive: previously-actioned rows move out of the working tabs and
   // suppress re-recommendation of the same item on future runs (delete the
@@ -336,20 +325,16 @@ export async function runAnalyse(deps: PipelineDeps, options: { pullOnly?: boole
     ),
   );
 
-  // --- Recommendations (actionable) and Rejected (no-action) tabs ---
-  const actionable = analysed.filter((g) => g.category !== 'reject');
+  // --- Recommendations (on-page actions only) and Rejected tabs.
+  // new_* groups live solely in New Page Ideas, so the review list stays
+  // focused on changes to existing pages. ---
+  const NEW_PAGE_CATEGORIES = new Set(['new_commercial_page', 'new_supporting_content']);
+  const actionable = analysed.filter(
+    (g) => g.category !== 'reject' && !NEW_PAGE_CATEGORIES.has(g.category),
+  );
   const rejected = analysed.filter((g) => g.category === 'reject');
 
-  const toRow = (g: AnalysedGroup) => {
-    const rec = buildRecommendation(g);
-    const clusterTitle = clusterBySeedlessMember.get(
-      `${normUrl(g.url)}##${g.canonicalQuery.toLowerCase()}`,
-    );
-    if (clusterTitle && clusterTitle !== g.canonicalQuery) {
-      rec.suggestedPlacement = `Consolidated into new page idea "${clusterTitle}" (see New Page Ideas)`;
-    }
-    return recommendationToRow(rec);
-  };
+  const toRow = (g: AnalysedGroup) => recommendationToRow(buildRecommendation(g));
 
   let suppressedRecCount = 0;
   const writeSplitTab = async (tab: string, groups: AnalysedGroup[], archive: boolean) => {

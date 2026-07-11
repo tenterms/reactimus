@@ -24,22 +24,29 @@ export interface GscRawRow {
 
 export type PageIntent = 'commercial' | 'informational' | 'navigational' | 'mixed' | '';
 
-export interface InputUrlRow {
+/**
+ * One row of the unified "Pages" tab: the site's known URLs (for
+ * cannibalisation/site awareness) with an "Include in next run" checkbox
+ * selecting which pages get pulled and analysed.
+ */
+export interface PageRow {
   url: string;
+  /** "Include in next run" checkbox — only ticked rows are pulled/analysed. */
+  include: string;
   pageType: string;
   primaryTopic: string;
   targetIntent: PageIntent;
+  titleTag: string;
+  h1: string;
+  canonicalUrl: string;
   businessPriority: string;
   notes: string;
   lastAnalysed: string;
   status: string;
-  /**
-   * "Include in next run" selector. When any row is ticked (yes/y/x/true/1),
-   * only ticked rows are pulled and analysed; when no row is ticked, all
-   * rows run. Unselected URLs keep their existing data untouched.
-   */
-  include: string;
 }
+
+/** @deprecated legacy alias — the Pages tab replaced Input URLs. */
+export type InputUrlRow = PageRow;
 
 // ---------------------------------------------------------------------------
 // Page content (tab: "Page Content")
@@ -62,16 +69,8 @@ export interface PageContentRow {
 // Site inventory (tab: "Site URL Inventory")
 // ---------------------------------------------------------------------------
 
-export interface SiteInventoryRow {
-  url: string;
-  titleTag: string;
-  h1: string;
-  pageType: string;
-  primaryTopic: string;
-  targetIntent: PageIntent;
-  canonicalUrl: string;
-  notes: string;
-}
+/** @deprecated legacy alias — site awareness now comes from the Pages tab. */
+export type SiteInventoryRow = PageRow;
 
 // ---------------------------------------------------------------------------
 // Query grouping
@@ -163,7 +162,7 @@ export type RecommendationCategory =
   | 'add_to_faq'
   | 'new_commercial_page'
   | 'new_supporting_content'
-  | 'assign_to_existing_page'
+  | 'link_to_existing_page'
   | 'reject';
 
 export interface AnalysedGroup extends QueryGroup {
@@ -223,7 +222,11 @@ export interface NewPageIdeaRow {
 // Suggested Edits (tab: "Suggested Edits") — copy-and-paste improvements
 // ---------------------------------------------------------------------------
 
-export type SuggestedEditType = 'New H2 section' | 'Body copy' | 'FAQ (H3 questions)';
+export type SuggestedEditType =
+  | 'New H2 section'
+  | 'Body copy'
+  | 'FAQ (H3 questions)'
+  | 'Internal link';
 
 export interface SuggestedEditRow {
   url: string;

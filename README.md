@@ -41,10 +41,9 @@ npm run apply-feedback                             # turn reviewer corrections i
 | Tab | Role |
 |---|---|
 | `Config` | Client, GSC property, date window (default: last 3 months), thresholds, locations, terminology, LLM settings |
-| `Input URLs` | One row per page to analyse (URL, page type, primary topic, target intent, …). Tick "Include in next run" to analyse only selected rows; leave all unticked to run everything |
+| `Pages` | The site's known URLs in one place (title/H1 auto-filled), with an "Include in next run" checkbox next to each URL — only ticked pages are pulled and analysed; every row feeds the cannibalisation checks. Seed via sitemap import (`npm run inventory`) or paste URLs. Legacy Input URLs / Site URL Inventory tabs migrate automatically |
 | `GSC Raw` | Hidden backend tab; one row per raw URL/query pair with full metrics |
 | `Page Content` | Extracted title, meta, H1, H2s, body text per analysed URL |
-| `Site URL Inventory` | Other known pages, used for cannibalisation checks (seed via sitemap import or manually) |
 | `Query Groups` | The analysis layer: one row per query group with metrics, mention detection, and all five scores |
 | `Recommendations` | The editorial review layer: one row per actionable recommendation + human review columns |
 | `Suggested Edits` | Copy-and-paste improvements: what to add, where on the page, which keywords it covers (H2s, body sentences, and one consolidated H3 FAQ set per page) |
@@ -57,7 +56,7 @@ npm run apply-feedback                             # turn reviewer corrections i
 
 ## Recommendation categories
 
-`add_to_h2` · `add_to_body` · `add_to_faq` · `new_commercial_page` · `new_supporting_content` · `assign_to_existing_page` · `reject`
+`add_to_h2` · `add_to_body` · `add_to_faq` · `link_to_existing_page` (internal link to the page that should own the query) · `reject` — plus `new_commercial_page` / `new_supporting_content`, which appear only in New Page Ideas, keeping Recommendations focused on existing pages
 
 Default decision rules (thresholds configurable in `src/config/defaults.ts`):
 
@@ -66,7 +65,7 @@ Default decision rules (thresholds configurable in `src/config/defaults.ts`):
 - long conversational queries (AI-assistant/voice-style) never become headings or pages: relevant ones → `add_to_faq`, weak-fit ones → rejected as demand signals
 - commerciality ≥4, distinct ≥3, cannibalisation ≤2 → `new_commercial_page`
 - relevance ≥3, informational, distinct ≥3 → `new_supporting_content`
-- cannibalisation ≥4 with a better URL → `assign_to_existing_page`
+- cannibalisation ≥4 with a better URL → `link_to_existing_page` (add an internal link with the query as anchor text)
 - relevance ≤2 or intent ≤2 → `reject` (a weakly-related distinct commercial group may still surface as a low-confidence new-page idea when it overlaps the wider site's topics)
 - phrase already prominent in a heading → no action; already covered naturally in body copy → no action unless it qualifies for a prominence upgrade
 
@@ -92,6 +91,17 @@ Edit the review columns on any `Recommendations` row, then run `npm run apply-fe
 | Mark two phrases as distinct intents | `Corrected group` = `distinct: phrase a \| phrase b` |
 
 Set `Remember this rule?` = `yes` to create a reusable rule, and pick a `Feedback scope`: `current_recommendation_only`, `current_url`, `sitewide`, `client`, or `global` (global rules are saved as drafts pending admin approval). Rules apply in scope order — global → client → sitewide → URL — with more specific rules overriding broader ones. The processed row is marked (`saved:<rule id>`) so re-running never duplicates rules. Then re-run `npm run analyse` to apply the new rules: groups are re-split/merged, metrics recalculated, mentions re-checked, and recommendations regenerated.
+
+## Deploying for a new client
+
+One deployment serves any number of clients — one Google Sheet each, no code changes:
+
+1. Create a blank Google Sheet; share it (Editor) with the same service account email.
+2. In Search Console, add the service account as a Restricted user on the client's property.
+3. Add the client to a `clients.json` next to package.json (gitignored): `{ "acme": "<spreadsheet-id>" }`.
+4. `npm run analyse -- acme` — tabs are created; fill the `Config` tab (Client name, Website, GSC property) and tick pages in `Pages`, then run again.
+
+All client-specific settings live in that sheet's Config tab; nothing in the codebase changes per client. (`SPREADSHEET_ID`/`GSC_PROPERTY` env vars are fallbacks for single-client use only.)
 
 ## Optional LLM scoring
 

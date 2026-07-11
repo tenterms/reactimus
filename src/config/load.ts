@@ -62,6 +62,7 @@ export function loadConfigFromRows(rows: SheetRow[]): ToolConfig {
     if (!key || !value) continue;
     SETTERS[key]?.(config, value);
   }
-  if (process.env.GSC_PROPERTY) config.gscProperty = process.env.GSC_PROPERTY;
+  // Env var is a fallback only — each client sheet's Config wins.
+  if (!config.gscProperty && process.env.GSC_PROPERTY) config.gscProperty = process.env.GSC_PROPERTY;
   return config;
 }

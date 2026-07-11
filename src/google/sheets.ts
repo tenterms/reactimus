@@ -1,6 +1,6 @@
 import { google, sheets_v4 } from 'googleapis';
 import { createGoogleAuth } from './auth.js';
-import { HEADERS, HIDDEN_TABS } from './schema.js';
+import { CHECKBOX_COLUMNS, HEADERS, HIDDEN_TABS } from './schema.js';
 
 export type SheetRow = Record<string, string>;
 
@@ -34,6 +34,38 @@ export class SheetsClient {
         spreadsheetId: this.spreadsheetId,
         requestBody: { requests },
       });
+      // Refresh sheet ids for validation setup below.
+      const refreshed = await this.api.spreadsheets.get({ spreadsheetId: this.spreadsheetId });
+      existing.clear();
+      for (const s of refreshed.data.sheets ?? []) {
+        existing.set(s.properties?.title ?? '', s.properties?.sheetId ?? 0);
+      }
+    }
+
+    // Render selector columns as real checkboxes.
+    const validationRequests: sheets_v4.Schema$Request[] = [];
+    for (const [tab, column] of Object.entries(CHECKBOX_COLUMNS)) {
+      const sheetId = existing.get(tab);
+      const colIndex = HEADERS[tab]?.indexOf(column) ?? -1;
+      if (sheetId === undefined || colIndex < 0) continue;
+      validationRequests.push({
+        setDataValidation: {
+          range: {
+            sheetId,
+            startRowIndex: 1,
+            endRowIndex: 5000,
+            startColumnIndex: colIndex,
+            endColumnIndex: colIndex + 1,
+          },
+          rule: { condition: { type: 'BOOLEAN' }, showCustomUi: true },
+        },
+      });
+    }
+    if (validationRequests.length > 0) {
+      await this.api.spreadsheets.batchUpdate({
+        spreadsheetId: this.spreadsheetId,
+        requestBody: { requests: validationRequests },
+      });
     }
 
     // Write headers into any tab whose first row is empty.
@@ -54,12 +86,18 @@ export class SheetsClient {
     }
   }
 
-  /** Read a tab into header-keyed row objects (all values as strings). */
+  /** Read a tab into header-keyed row objects (missing tab → empty). */
   async readTab(tab: string): Promise<SheetRow[]> {
-    const res = await this.api.spreadsheets.values.get({
-      spreadsheetId: this.spreadsheetId,
-      range: `'${tab}'`,
-    });
+    let res;
+    try {
+      res = await this.api.spreadsheets.values.get({
+        spreadsheetId: this.spreadsheetId,
+        range: `'${tab}'`,
+      });
+    } catch (err) {
+      if (/Unable to parse range/i.test((err as Error).message)) return [];
+      throw err;
+    }
     const values = res.data.values ?? [];
     if (values.length < 2) return [];
     const headers = values[0]!.map((h) => String(h));
@@ -76,7 +114,9 @@ export class SheetsClient {
   async writeTab(tab: string, rows: SheetRow[]): Promise<void> {
     const headers = HEADERS[tab];
     if (!headers) throw new Error(`Unknown tab: ${tab}`);
-    const values = [headers, ...rows.map((r) => headers.map((h) => r[h] ?? ''))];
+    // 'TRUE'/'FALSE' become real booleans so checkbox columns render properly.
+    const cell = (v: string) => (v === 'TRUE' ? true : v === 'FALSE' ? false : v);
+    const values = [headers, ...rows.map((r) => headers.map((h) => cell(r[h] ?? '')))];
     await this.api.spreadsheets.values.clear({
       spreadsheetId: this.spreadsheetId,
       range: `'${tab}'`,
@@ -100,6 +140,30 @@ export class SheetsClient {
       valueInputOption: 'RAW',
       requestBody: { values: rows.map((r) => headers.map((h) => r[h] ?? '')) },
     });
+  }
+
+  /** Hide a tab (best-effort; used for migrated legacy tabs). */
+  async hideTab(tab: string): Promise<void> {
+    try {
+      const meta = await this.api.spreadsheets.get({ spreadsheetId: this.spreadsheetId });
+      const sheet = (meta.data.sheets ?? []).find((s) => s.properties?.title === tab);
+      if (!sheet || sheet.properties?.hidden) return;
+      await this.api.spreadsheets.batchUpdate({
+        spreadsheetId: this.spreadsheetId,
+        requestBody: {
+          requests: [
+            {
+              updateSheetProperties: {
+                properties: { sheetId: sheet.properties?.sheetId, hidden: true },
+                fields: 'hidden',
+              },
+            },
+          ],
+        },
+      });
+    } catch {
+      /* best-effort */
+    }
   }
 
   /** Update specific cells in a tab (used to mark feedback rows processed). */

@@ -6,10 +6,9 @@
 
 export const TAB = {
   config: 'Config',
-  inputUrls: 'Input URLs',
+  pages: 'Pages',
   gscRaw: 'GSC Raw',
   pageContent: 'Page Content',
-  siteInventory: 'Site URL Inventory',
   queryGroups: 'Query Groups',
   recommendations: 'Recommendations',
   suggestedEdits: 'Suggested Edits',
@@ -23,16 +22,19 @@ export const TAB = {
 
 export const HEADERS: Record<string, string[]> = {
   [TAB.config]: ['Setting', 'Value', 'Notes'],
-  [TAB.inputUrls]: [
+  [TAB.pages]: [
     'URL',
+    'Include in next run',
     'Page type',
     'Primary topic',
     'Target intent',
+    'Title tag',
+    'H1',
+    'Canonical URL',
     'Business priority',
     'Notes',
     'Last analysed',
     'Status',
-    'Include in next run',
   ],
   [TAB.gscRaw]: [
     'URL',
@@ -58,16 +60,6 @@ export const HEADERS: Record<string, string[]> = {
     'Body text',
     'Word count',
     'Last fetched',
-  ],
-  [TAB.siteInventory]: [
-    'URL',
-    'Title tag',
-    'H1',
-    'Page type',
-    'Primary topic',
-    'Target intent',
-    'Canonical URL',
-    'Notes',
   ],
   [TAB.queryGroups]: [
     'URL',
@@ -239,3 +231,12 @@ export const SUGGESTED_EDIT_REVIEW_COLUMNS = ['Status', 'Reviewer notes'];
 
 /** Tabs that are backend/data tabs and should be hidden from reviewers. */
 export const HIDDEN_TABS: string[] = [TAB.gscRaw];
+
+/** Legacy tabs replaced by the unified Pages tab; migrated then hidden. */
+export const LEGACY_INPUT_URLS = 'Input URLs';
+export const LEGACY_SITE_INVENTORY = 'Site URL Inventory';
+
+/** Columns rendered as real checkboxes (data validation), per tab. */
+export const CHECKBOX_COLUMNS: Record<string, string> = {
+  [TAB.pages]: 'Include in next run',
+};

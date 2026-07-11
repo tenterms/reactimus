@@ -169,8 +169,13 @@ export function compileRules(rules: FeedbackRule[], ctx: RuleContext, now = new 
       }
       case 'change_recommendation': {
         if (!rule.queryGroup || !rule.correctedDecision) break;
+        // Back-compat: the category was renamed from assign_to_existing_page.
+        const corrected =
+          rule.correctedDecision === 'assign_to_existing_page'
+            ? 'link_to_existing_page'
+            : rule.correctedDecision;
         compiled.categoryOverrides.set(urlGroupKey(rule.url, contentSignature(rule.queryGroup)), {
-          category: rule.correctedDecision as RecommendationCategory,
+          category: corrected as RecommendationCategory,
           ruleId: rule.ruleId,
           reason: rule.reason,
         });

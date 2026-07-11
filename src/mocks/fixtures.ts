@@ -130,18 +130,18 @@ export const DEMO_SEED: Record<string, SheetRow[]> = {
     { Setting: 'Target locations', Value: 'Sheffield, Rotherham, Barnsley' },
     { Setting: 'Excluded locations', Value: 'Leeds' },
   ],
-  [TAB.inputUrls]: [
+  [TAB.pages]: [
     {
       URL: URL_SUPPORT,
+      'Include in next run': 'TRUE',
       'Page type': 'service',
       'Primary topic': 'IT support Sheffield',
       'Target intent': 'commercial',
       'Business priority': 'high',
     },
-  ],
-  [TAB.siteInventory]: [
     {
       URL: URL_SERVICES,
+      'Include in next run': 'FALSE',
       'Title tag': MOCK_PAGES[URL_SERVICES]!.titleTag,
       H1: MOCK_PAGES[URL_SERVICES]!.h1,
       'Page type': 'service',

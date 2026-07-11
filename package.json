@@ -15,7 +15,8 @@
     "pull": "tsx src/cli.ts pull",
     "inventory": "tsx src/cli.ts inventory",
     "apply-feedback": "tsx src/cli.ts apply-feedback",
-    "demo": "tsx src/cli.ts demo"
+    "demo": "tsx src/cli.ts demo",
+    "serve": "tsx src/server.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",

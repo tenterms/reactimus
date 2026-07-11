@@ -92,7 +92,23 @@ Edit the review columns on any `Recommendations` row, then run `npm run apply-fe
 
 Set `Remember this rule?` = `yes` to create a reusable rule, and pick a `Feedback scope`: `current_recommendation_only`, `current_url`, `sitewide`, `client`, or `global` (global rules are saved as drafts pending admin approval). Rules apply in scope order — global → client → sitewide → URL — with more specific rules overriding broader ones. The processed row is marked (`saved:<rule id>`) so re-running never duplicates rules. Then re-run `npm run analyse` to apply the new rules: groups are re-split/merged, metrics recalculated, mentions re-checked, and recommendations regenerated.
 
-## Deploying for a new client
+## Running from inside the sheet (team deployment)
+
+Non-technical teammates never need a terminal. Deploy the engine once as a small web service, and every sheet gets an **SEO Tool menu** (Run analysis / Pull data only / Apply feedback / Set up this sheet):
+
+1. **Deploy the service** (once, by whoever owns the Google Cloud project):
+   ```bash
+   gcloud run deploy gsc-recs --source . --region europe-west1 --no-allow-unauthenticated=false \
+     --set-env-vars GOOGLE_SERVICE_ACCOUNT_EMAIL=...,SERVICE_TOKEN=<random-secret> \
+     --set-secrets GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=gsc-recs-key:latest
+   ```
+   (Any Node host works — `npm run serve` runs the same server. Endpoints: `GET /healthz`, `POST /run` guarded by the `x-service-token` header.)
+2. **Install the menu in a template sheet**: Extensions → Apps Script → paste `apps-script/Menu.gs` → fill in `SERVICE_URL`, `SERVICE_TOKEN` and the service-account email → save. Add the standard Config rows and share the template with the service account.
+3. **New client = copy the template.** Bound scripts copy with the sheet, so the copy already has the menu. The teammate clicks **SEO Tool → Set up this sheet**, which shares the sheet with the service account, creates all tabs, and shows the remaining checklist (fill Config; add the service account as a Restricted user on the client's GSC property; tick pages). Then **Run analysis**.
+
+Runs are asynchronous — the menu shows a toast and progress lands in the Pages tab (Status / Last analysed). The service refuses concurrent runs for the same sheet and rejects requests without the shared token.
+
+## Deploying for a new client (CLI alternative)
 
 One deployment serves any number of clients — one Google Sheet each, no code changes:
 
